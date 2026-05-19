@@ -1,3 +1,4 @@
 /Manifest*.toml
 bench/Manifest*.toml
 docs/Manifest*.toml
+scaling/Manifest.toml
