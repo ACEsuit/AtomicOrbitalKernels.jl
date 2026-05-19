@@ -1,0 +1,9 @@
+[deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+GaussianBasis = "9bb1a3dc-0d1c-467e-84f5-0c4ef701360a"
+GaussianBasisKernels = "aa7a2209-7a51-48b2-9f84-4fb7a35f78a5"
+KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+Molecules = "5de6a177-b489-40a9-b2f4-524242b9b679"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
