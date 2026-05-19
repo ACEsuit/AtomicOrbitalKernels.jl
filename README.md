@@ -2,10 +2,13 @@
 
 [![Build Status](https://github.com/cortner/GaussianBasisKernels.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/cortner/GaussianBasisKernels.jl/actions/workflows/CI.yml?query=branch%3Amain)
 
-Batched, backend-agnostic GPU/CPU kernels for Cartesian-Gaussian basis-set
+This Julia package provides somewhat experimental (but very usable)
+batched, backend-agnostic GPU/CPU kernels for Cartesian-Gaussian basis-set
 integrals on top of [GaussianBasis.jl](https://github.com/FermiQC/GaussianBasis.jl),
 built with [KernelAbstractions.jl](https://github.com/JuliaGPU/KernelAbstractions.jl)
-so the same code runs on CPU, CUDA, Metal, and (untested) ROCm.
+so the same code runs on CPU, CUDA, Metal, and (untested) ROCm. The package 
+is written with specific research projects in mind, hence the currently 
+limited scope.
 
 ## Scope
 
@@ -19,7 +22,7 @@ so the same code runs on CPU, CUDA, Metal, and (untested) ROCm.
 | ERIs (2e2c, 2e3c, 2e4c)           | Not implemented                                                      |
 | Gradients                         | Not implemented                                                      |
 
-Integrals beyond 2C and 3C overlap will be added as we need them. The package
+Integrals beyond 2C and 3C overlap will be added as needed. The package
 provides **no fallbacks** to GaussianBasis.jl for unimplemented operations —
 if you need them on CPU, call GaussianBasis.jl directly.
 
@@ -76,8 +79,6 @@ batch_overlap_3c!(out3, basis, posA[:, 1:128], posB[:, 1:128], posC)
   `2l+1` rather than `nbf = (l+1)(l+2)/2`, which produces deliberate index
   aliasing — preserved for bit-for-bit compatibility with the bundled scalar
   reference (`GaussianBasisKernels.Reference`).
-- **Element type** is determined by `eltype(out)`. Use `Float64` on CPU,
-  `Float32` on GPU (Apple Metal requires it; CUDA tends to be faster with it).
 
 ## Reference implementation
 
@@ -95,18 +96,33 @@ The reference exposes the underlying McMurchie–Davidson E-coefficient
 recursion (`generate_E_matrix!`, `generate_E3_matrix!`) and per-shell-pair /
 shell-triple writes (`generate_S_pair!`, `generate_V_triple!`).
 
-## Benchmarks
+## Scaling
 
-A benchmark driver lives at [bench/batch_bench.jl](bench/batch_bench.jl) with
-its own `bench/Project.toml`. Run from the repo root:
+A scaling sweep driver lives at [scaling/scaling.jl](scaling/scaling.jl) with
+its own `scaling/Project.toml`. It runs the 2C and 3C kernels at batch sizes
+`B = 2^7, 2^8, …, 2^14` for a single backend per invocation and prints a
+markdown table with timings (`BenchmarkTools.@belapsed`). 
 
 ```
-julia --project=bench bench/batch_bench.jl
+# CPU (Float64) — single-threaded baseline
+julia -t 64 --project=scaling scaling/scaling.jl
+
+# CPU using all physical cores (recommended for a fair CPU number)
+julia --project=scaling -t auto scaling/scaling.jl
+
+# Explicit CPU is also accepted
+julia --project=scaling -t auto scaling/scaling.jl CPU
+
+# GPU (Float32) — pass the backend package name. It must be installed
+# somewhere on the active load path. The script `@eval using $BACKEND`s it
+# and then uses `MLDataDevices.gpu_device()` to obtain the device.
+julia --project=scaling scaling/scaling.jl Metal
+julia --project=scaling scaling/scaling.jl CUDA
 ```
 
-It validates both 2C and 3C against the scalar reference and prints CPU
-(BenchmarkTools `@btime`) timings; GPU timings appear automatically if a
-functional `CUDA` or `Metal` backend is available in the bench project.
+The KA `CPU` backend parallelises across Julia threads, so the CPU column
+depends on `--threads` / `-t` / `JULIA_NUM_THREADS`. Thread count is
+irrelevant once a GPU backend is selected — GPU dispatch ignores `-t`.
 
 ## Testing
 
