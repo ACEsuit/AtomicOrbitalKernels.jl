@@ -30,7 +30,13 @@ using Random
 using Unitful
 using Printf
 
-if USE_GPU
+if USE_GPU && BACKEND == "CUDA" 
+    using CUDA 
+    const dev = cu 
+    const ArrayCtor = typeof(Float32[1.0f0] |> dev).name.wrapper
+    const FT = Float32
+    move(x) = x |> dev
+elseif USE_GPU
     using MLDataDevices
     @eval using $(Symbol(BACKEND))
     const dev = gpu_device()
@@ -42,6 +48,8 @@ else
     const FT = Float64
     move(x) = x
 end
+
+@show dev 
 
 ## --- basis --------------------------------------------------------------
 
