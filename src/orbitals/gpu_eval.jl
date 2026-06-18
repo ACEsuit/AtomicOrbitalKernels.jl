@@ -1,14 +1,14 @@
-# GPU-first KernelAbstractions evaluation for `AtomicOrbitals`.
+# GPU-first KernelAbstractions evaluation for the orbital types.
 #
-# The composite ϕ = Pn·Dn·Ylm is evaluated by computing the three factor bases
-# into device matrices and assembling the product (and its spatial gradient) in
-# a KA kernel. `Pn` (MonoBasis) and `Ylm` (SpheriCart) already have GPU
-# evaluation paths; the radial decay `Dn` and the product assembly are the
-# kernels below. The radial parameters are taken from the Lux `ps.Dn = (ζ, D)`,
-# which on the GPU live on the device. These kernels run on any KA backend, so
-# the same path also works on the CPU backend.
+# Two nested 2-factor assemblies:
+#   SeparableRadial:  R[i,k]   = Pn[i,p] · Dn[i,d]
+#   AtomicOrbitals:   ϕ[j,i]   = Rnl[j,k] · Ylm[j,y]
+# `Pn` (MonoBasis) and `Ylm` (SpheriCart) already have GPU evaluation paths; the
+# `RadialDecay` envelope and the two assemblies are the kernels below. Radial
+# parameters come from the Lux `ps`, which on the GPU live on the device. These
+# kernels run on any KA backend, so the same path also runs on the CPU backend.
 
-# ---- radial decay  Dn(r) = Σ_m D[n,m] exp(-ζ[n,m] f(r)) ----
+# ---- decay envelope  Dn(r) = Σ_m D[n,m] exp(-ζ[n,m] f(r)) ----
 
 @kernel function _radial_val_ka!(P, @Const(x), @Const(ζ), @Const(D), decay)
     i, n = @index(Global, NTuple)
@@ -39,7 +39,7 @@ end
     @inbounds dP[i, n] = dacc
 end
 
-function _radial_eval_gpu(basis::RadialDecay, x, ps; withgrad::Bool)
+function _decay_eval_gpu(basis::RadialDecay, x, ps; withgrad::Bool)
     ζ, D = ps.ζ, ps.D
     N = size(ζ, 1)
     nX = length(x)
@@ -56,75 +56,103 @@ function _radial_eval_gpu(basis::RadialDecay, x, ps; withgrad::Bool)
     end
 end
 
-# ---- product assembly  Rnl[j,i] = Pn[j,b1]·Dn[j,b2]·Ylm[j,b3] ----
-
-@kernel function _aorb_val_ka!(Rnl, @Const(Pn), @Const(Dn), @Const(Ylm),
-                               @Const(b1), @Const(b2), @Const(b3))
-    j, i = @index(Global, NTuple)
-    @inbounds Rnl[j, i] = Pn[j, b1[i]] * Dn[j, b2[i]] * Ylm[j, b3[i]]
-end
-
-@kernel function _aorb_ed_ka!(Rnl, dRnl, @Const(Pn), @Const(Dn), @Const(Ylm),
-                              @Const(dPn), @Const(dDn), @Const(dYlm),
-                              @Const(X), @Const(R),
-                              @Const(b1), @Const(b2), @Const(b3))
-    j, i = @index(Global, NTuple)
-    @inbounds begin
-        i1 = b1[i]; i2 = b2[i]; i3 = b3[i]
-        p = Pn[j, i1]; d = Dn[j, i2]; y = Ylm[j, i3]
-        Rnl[j, i] = p * d * y
-        drj = X[j] / R[j]
-        dRnl[j, i] = dPn[j, i1] * drj * d * y +
-                     p * dDn[j, i2] * drj * y +
-                     p * d * dYlm[j, i3]
-    end
-end
-
 # copy a host index vector to a device vector matching `ref`'s backend
 _device_like(ref, v::AbstractVector) =
         copyto!(similar(ref, eltype(v), length(v)), v)
 
-# ---- GPU evaluation entry points (Lux params on device) ----
+# ---- SeparableRadial assembly  R[i,k] = Pn[i,p]·Dn[i,d] ----
 
-function _gpu_evaluate!(Rnl, dRnl, basis::AtomicOrbitals, X, ps, st)
-    WITHGRAD = !isnothing(dRnl)
-    nX = length(X)
-    nB = length(basis)
-    R = norm.(X)
+@kernel function _sep_val_ka!(R, @Const(Pn), @Const(Dn), @Const(p), @Const(d))
+    i, k = @index(Global, NTuple)
+    @inbounds R[i, k] = Pn[i, p[k]] * Dn[i, d[k]]
+end
 
-    # Pn (MonoBasis) and Ylm (SpheriCart) are parameter-free with GPU paths.
+@kernel function _sep_ed_ka!(R, dR, @Const(Pn), @Const(dPn), @Const(Dn), @Const(dDn),
+                             @Const(p), @Const(d))
+    i, k = @index(Global, NTuple)
+    @inbounds begin
+        pp = p[k]; dd = d[k]
+        R[i, k] = Pn[i, pp] * Dn[i, dd]
+        dR[i, k] = dPn[i, pp] * Dn[i, dd] + Pn[i, pp] * dDn[i, dd]
+    end
+end
+
+function evaluate!(R::AbstractGPUArray, basis::SeparableRadial, r::BATCH, ps, st)
+    Pn = evaluate(basis.Pn, r)                              # MonoBasis GPU, param-free
+    Dn = _decay_eval_gpu(basis.Dn, r, ps.Dn; withgrad = false)
+    p = _device_like(R, [t[1] for t in basis.specidx])
+    d = _device_like(R, [t[2] for t in basis.specidx])
+    backend = KA.get_backend(R)
+    _sep_val_ka!(backend)(R, Pn, Dn, p, d; ndrange = size(R))
+    KA.synchronize(backend)
+    return R
+end
+
+function evaluate_ed!(R::AbstractGPUArray, dR::AbstractGPUArray,
+                      basis::SeparableRadial, r::BATCH, ps, st)
+    Pn, dPn = evaluate_ed(basis.Pn, r)
+    Dn, dDn = _decay_eval_gpu(basis.Dn, r, ps.Dn; withgrad = true)
+    p = _device_like(R, [t[1] for t in basis.specidx])
+    d = _device_like(R, [t[2] for t in basis.specidx])
+    backend = KA.get_backend(R)
+    _sep_ed_ka!(backend)(R, dR, Pn, dPn, Dn, dDn, p, d; ndrange = size(R))
+    KA.synchronize(backend)
+    return R, dR
+end
+
+# ---- AtomicOrbitals assembly  ϕ[j,i] = Rnl[j,k]·Ylm[j,y] ----
+
+@kernel function _aorb_val_ka!(Rnlm, @Const(Rn), @Const(Ylm), @Const(kk), @Const(yy))
+    j, i = @index(Global, NTuple)
+    @inbounds Rnlm[j, i] = Rn[j, kk[i]] * Ylm[j, yy[i]]
+end
+
+@kernel function _aorb_ed_ka!(Rnlm, dRnlm, @Const(Rn), @Const(dRn), @Const(Ylm),
+                              @Const(dYlm), @Const(X), @Const(r),
+                              @Const(kk), @Const(yy))
+    j, i = @index(Global, NTuple)
+    @inbounds begin
+        k = kk[i]; y = yy[i]
+        rn = Rn[j, k]; yl = Ylm[j, y]
+        Rnlm[j, i] = rn * yl
+        drj = X[j] / r[j]
+        dRnlm[j, i] = dRn[j, k] * drj * yl + rn * dYlm[j, y]
+    end
+end
+
+function _gpu_evaluate!(Rnlm, dRnlm, basis::AtomicOrbitals, X, ps, st)
+    WITHGRAD = !isnothing(dRnlm)
+    r = norm.(X)
+
     if WITHGRAD
-        Pn, dPn = evaluate_ed(basis.Pn, R)
-        Dn, dDn = _radial_eval_gpu(basis.Dn, R, ps.Dn; withgrad = true)
+        Rn, dRn = evaluate_ed(basis.Rnl, r, ps.Rnl, st.Rnl)   # SeparableRadial GPU
         Ylm, dYlm = evaluate_ed(basis.Ylm, X)
     else
-        Pn = evaluate(basis.Pn, R)
-        Dn = _radial_eval_gpu(basis.Dn, R, ps.Dn; withgrad = false)
+        Rn = evaluate(basis.Rnl, r, ps.Rnl, st.Rnl)
         Ylm = evaluate(basis.Ylm, X)
     end
 
-    b1 = _device_like(Rnl, [t[1] for t in basis.specidx])
-    b2 = _device_like(Rnl, [t[2] for t in basis.specidx])
-    b3 = _device_like(Rnl, [t[3] for t in basis.specidx])
+    kk = _device_like(Rnlm, [t[1] for t in basis.specidx])
+    yy = _device_like(Rnlm, [t[2] for t in basis.specidx])
 
-    backend = KA.get_backend(Rnl)
+    backend = KA.get_backend(Rnlm)
     if WITHGRAD
-        _aorb_ed_ka!(backend)(Rnl, dRnl, Pn, Dn, Ylm, dPn, dDn, dYlm, X, R,
-                              b1, b2, b3; ndrange = (nX, nB))
+        _aorb_ed_ka!(backend)(Rnlm, dRnlm, Rn, dRn, Ylm, dYlm, X, r,
+                              kk, yy; ndrange = size(Rnlm))
     else
-        _aorb_val_ka!(backend)(Rnl, Pn, Dn, Ylm, b1, b2, b3; ndrange = (nX, nB))
+        _aorb_val_ka!(backend)(Rnlm, Rn, Ylm, kk, yy; ndrange = size(Rnlm))
     end
     KA.synchronize(backend)
     return nothing
 end
 
-function evaluate!(Rnl::AbstractGPUArray, basis::AtomicOrbitals, X::BATCH, ps, st)
-    _gpu_evaluate!(Rnl, nothing, basis, X, ps, st)
-    return Rnl
+function evaluate!(Rnlm::AbstractGPUArray, basis::AtomicOrbitals, X::BATCH, ps, st)
+    _gpu_evaluate!(Rnlm, nothing, basis, X, ps, st)
+    return Rnlm
 end
 
-function evaluate_ed!(Rnl::AbstractGPUArray, dRnl::AbstractGPUArray,
+function evaluate_ed!(Rnlm::AbstractGPUArray, dRnlm::AbstractGPUArray,
                       basis::AtomicOrbitals, X::BATCH, ps, st)
-    _gpu_evaluate!(Rnl, dRnl, basis, X, ps, st)
-    return Rnl, dRnl
+    _gpu_evaluate!(Rnlm, dRnlm, basis, X, ps, st)
+    return Rnlm, dRnlm
 end

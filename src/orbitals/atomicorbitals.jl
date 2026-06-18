@@ -1,53 +1,15 @@
-# Atomic-orbital basis:
-#   ϕ_{n1,n2,l,m}(𝐫) = Pn_{n1}(r) · Dn_{n2,l}(r) · Ylm_{l,m}(𝐫)
+# Atomic-orbital basis:  ϕ_{n,l,m}(𝐫) = R_{n,l}(r) · Ylm_{l,m}(𝐫)
 #
-# Moved from Polynomials4ML v0.6.1 (src/atomicorbitals/), to be removed from
-# Polynomials4ML. The types are concrete and built on the P4ML
-# `AbstractP4MLBasis` interface; P4ML remains a dependency for the radial
-# building blocks (`MonoBasis`) and the evaluation/AD/Lux machinery, and
-# SpheriCart supplies the angular `Ylm`. The Bumper/WithAlloc CPU fast-path of
-# the original `_evaluate!` is dropped in favour of plain allocation; GPU-first
-# KA evaluation is a planned follow-up.
+# A product of a radial basis `Rnl` (any `AbstractP4MLBasis` over the scalar
+# radius r — e.g. a `SeparableRadial`) and an angular basis `Ylm` (a SpheriCart
+# harmonics basis, used through the ACEbase `evaluate` interface and carrying no
+# parameters/state). Moved from Polynomials4ML v0.6.1 and restructured from the
+# original `Pn·Dn·Ylm` form into this `Rnl·Ylm` form, so the radial family is a
+# pluggable, independently-testable piece.
 
-abstract type AbstractDecayFunction end
-
-const NT_NNL = NamedTuple{(:n1, :n2, :l), Tuple{Int, Int, Int}}
 const NT_NNLM = NamedTuple{(:n1, :n2, :l, :m), Tuple{Int, Int, Int, Int}}
 
-struct RadialDecay{LEN, TSMAT, DF<:AbstractDecayFunction} <: AbstractP4MLBasis
-    ζ::TSMAT
-    D::TSMAT
-    decay::DF
-    spec::SVector{LEN, NT_NNL}
-end
-
-"""
-`AtomicOrbitals` : a quantum-chemistry atomic-orbital basis whose functions are
-products `ϕ_{n1,n2,l,m}(𝐫) = Pn_{n1}(r) * Dn_{n2,l}(r) * Ylm_{l,m}(𝐫)` of a
-radial polynomial part `Pn`, a radial decay part `Dn` (a `RadialDecay`), and an
-angular part `Ylm` (a SpheriCart harmonics basis, used purely through the
-ACEbase `evaluate` interface and carrying no parameters/state).
-"""
-mutable struct AtomicOrbitals{LEN, TP, TD, TY}  <: AbstractP4MLBasis
-   Pn::TP
-   Dn::TD
-   Ylm::TY
-   spec::SVector{LEN, NT_NNLM}
-   specidx::Vector{Tuple{Int64, Int64, Int64}}
-end
-
-function AtomicOrbitals(Pn, Dn, Ylm, spec::AbstractVector{NT_NNLM}, specidx)
-    LEN = length(spec)
-    return AtomicOrbitals{LEN, typeof(Pn), typeof(Dn), typeof(Ylm)}(
-                Pn, Dn, Ylm, SVector{LEN, NT_NNLM}(spec), specidx)
-end
-
-Base.length(basis::AtomicOrbitals) = length(basis.spec)
-
-natural_indices(basis::AtomicOrbitals) = basis.spec
-
-# angular `Ylm` value type: real fallback; the SpheriCart complex harmonics are
-# specialised below.
+# angular `Ylm` value type: real fallback; SpheriCart complex harmonics below.
 _ylm_valtype(Ylm, ::Type{<: SVector{3, S}}) where {S} = S
 _ylm_valtype(::Union{ComplexSolidHarmonics, ComplexSphericalHarmonics},
              ::Type{<: SVector{3, S}}) where {S} = Complex{S}
@@ -55,81 +17,83 @@ _ylm_valtype(::Union{ComplexSolidHarmonics, ComplexSphericalHarmonics},
 # default angular basis used by the `_rand_*` example bases
 _default_ylm(L) = SolidHarmonics(L)
 
-_valtype(basis::AtomicOrbitals, T::Type{<: SVector{3, S}}) where {S} =
-        promote_type(_valtype(basis.Pn, S), _valtype(basis.Dn, S),
-                     _ylm_valtype(basis.Ylm, T))
+mutable struct AtomicOrbitals{LEN, TR, TY} <: AbstractP4MLBasis
+   Rnl::TR
+   Ylm::TY
+   spec::SVector{LEN, NT_NNLM}
+   specidx::Vector{Tuple{Int, Int}}    # (radial index, Ylm index) per orbital
+end
 
-_valtype(basis::AtomicOrbitals, T::Type{<: SVector{3, S}},
-            ps::Union{Nothing, @NamedTuple{}}, st) where {S} =
-        promote_type(_valtype(basis.Pn, S), _valtype(basis.Dn, S),
-                     _ylm_valtype(basis.Ylm, T))
+function AtomicOrbitals(Rnl, Ylm, spec::AbstractVector{NT_NNLM})
+    LEN = length(spec)
+    inv_Rnl = _invmap(natural_indices(Rnl))
+    inv_Ylm = _invmap(natural_indices(Ylm))
+    specidx = [ (inv_Rnl[(n1 = s.n1, n2 = s.n2, l = s.l)], inv_Ylm[(l = s.l, m = s.m)])
+                for s in spec ]
+    return AtomicOrbitals{LEN, typeof(Rnl), typeof(Ylm)}(
+                Rnl, Ylm, SVector{LEN, NT_NNLM}(spec), specidx)
+end
 
-_valtype(basis::AtomicOrbitals, T::Type{<: SVector{3, S}}, ps, st) where {S} =
-        promote_type(_valtype(basis.Pn, S, ps.Dn, st.Dn),
-                     _valtype(basis.Dn, S, ps.Dn, st.Dn),
-                     _ylm_valtype(basis.Ylm, T))
+Base.length(basis::AtomicOrbitals) = length(basis.spec)
+
+natural_indices(basis::AtomicOrbitals) = basis.spec
 
 _generate_input(basis::AtomicOrbitals) = @SVector randn(3)
 
 Base.show(io::IO, basis::AtomicOrbitals) =
-        print(io, "AtomicOrbitals($(basis.Pn), $(typeof(basis.Dn.decay).name.name), $(basis.Ylm))")
+        print(io, "AtomicOrbitals($(basis.Rnl), $(basis.Ylm))")
 
-include("radialdecay.jl")
+_valtype(basis::AtomicOrbitals, T::Type{<: SVector{3, S}}) where {S} =
+        promote_type(_valtype(basis.Rnl, S), _ylm_valtype(basis.Ylm, T))
 
-# `_static_params` extracts the internally-stored parameters (parameter-free
-# convention); `_init_luxparams`/`_init_luxstate` initialise them Lux-style.
+_valtype(basis::AtomicOrbitals, T::Type{<: SVector{3, S}},
+            ps::Union{Nothing, @NamedTuple{}}, st) where {S} =
+        promote_type(_valtype(basis.Rnl, S), _ylm_valtype(basis.Ylm, T))
+
+_valtype(basis::AtomicOrbitals, T::Type{<: SVector{3, S}}, ps, st) where {S} =
+        promote_type(_valtype(basis.Rnl, S, ps.Rnl, st.Rnl),
+                     _ylm_valtype(basis.Ylm, T))
+
 # `Ylm` carries no P4ML parameters/state.
-
 _static_params(basis::AtomicOrbitals) =
-        (Pn = _static_params(basis.Pn), Dn = _static_params(basis.Dn),
-         Ylm = NamedTuple())
+        (Rnl = _static_params(basis.Rnl), Ylm = NamedTuple())
 
 _init_luxparams(rng::AbstractRNG, l::AtomicOrbitals) =
-        ( Pn = _init_luxparams(rng, l.Pn),
-          Dn = _init_luxparams(rng, l.Dn),
-          Ylm = NamedTuple())
+        (Rnl = _init_luxparams(rng, l.Rnl), Ylm = NamedTuple())
 
 _init_luxstate(rng::AbstractRNG, l::AtomicOrbitals) =
-        ( Pn = _init_luxstate(rng, l.Pn),
-          Dn = _init_luxstate(rng, l.Dn),
-          Ylm = NamedTuple())
+        (Rnl = _init_luxstate(rng, l.Rnl), Ylm = NamedTuple())
 
-# -------- Evaluation (Bumper/WithAlloc removed; plain allocation) --------
+# -------- Evaluation (Rnl · Ylm; Bumper/WithAlloc-free) --------
 
 _evaluate!(Rnlm, dRnlm, basis::AtomicOrbitals, X) =
-            _evaluate!(Rnlm, dRnlm, basis, X,
-                       _static_params(basis),
-                       (Pn = nothing, Dn = nothing, Ylm = nothing))
+            _evaluate!(Rnlm, dRnlm, basis, X, _static_params(basis),
+                       (Rnl = (Pn = nothing, Dn = nothing), Ylm = nothing))
 
-function _evaluate!(Rnl, dRnl, basis::AtomicOrbitals,
+function _evaluate!(Rnlm, dRnlm, basis::AtomicOrbitals,
                     X::AbstractVector{<: SVector{3}}, ps, st)
-    nR = length(X)
-    WITHGRAD = !isnothing(dRnl)
+    nX = length(X)
+    WITHGRAD = !isnothing(dRnlm)
 
-    fill!(Rnl, zero(eltype(Rnl)))
-    WITHGRAD && fill!(dRnl, zero(eltype(dRnl)))
+    fill!(Rnlm, zero(eltype(Rnlm)))
+    WITHGRAD && fill!(dRnlm, zero(eltype(dRnlm)))
 
-    R = map(norm, X)
+    r = map(norm, X)
 
     if WITHGRAD
-        Pn, dPn = evaluate_ed(basis.Pn, R, ps.Pn, st.Pn)
-        Dn, dDn = evaluate_ed(basis.Dn, R, ps.Dn, st.Dn)
+        Rn, dRn = evaluate_ed(basis.Rnl, r, ps.Rnl, st.Rnl)
         Ylm, dYlm = evaluate_ed(basis.Ylm, X)
     else
-        Pn = evaluate(basis.Pn, R, ps.Pn, st.Pn)
-        Dn = evaluate(basis.Dn, R, ps.Dn, st.Dn)
+        Rn = evaluate(basis.Rnl, r, ps.Rnl, st.Rnl)
         Ylm = evaluate(basis.Ylm, X)
-        dPn = dDn = dYlm = nothing
     end
 
-    for (i, b) in enumerate(basis.specidx)
-        @simd ivdep for j = 1:nR
-            Rnl[j, i] = Pn[j, b[1]] * Dn[j, b[2]] * Ylm[j, b[3]]
+    for (i, (k, y)) in enumerate(basis.specidx)
+        @simd ivdep for j = 1:nX
+            Rnlm[j, i] = Rn[j, k] * Ylm[j, y]
             if WITHGRAD
-                drj = X[j] / R[j]
-                dRnl[j, i] = ( dPn[j, b[1]] * drj * Dn[j, b[2]] * Ylm[j, b[3]] +
-                                Pn[j, b[1]] * dDn[j, b[2]] * drj * Ylm[j, b[3]] +
-                                Pn[j, b[1]] * Dn[j, b[2]] * dYlm[j, b[3]] )
+                drj = X[j] / r[j]
+                dRnlm[j, i] = dRn[j, k] * drj * Ylm[j, y] + Rn[j, k] * dYlm[j, y]
             end
         end
     end
@@ -137,29 +101,53 @@ function _evaluate!(Rnl, dRnl, basis::AtomicOrbitals,
     return nothing
 end
 
-function pullback_ps(∂Rnl, basis::AtomicOrbitals,
+function pullback_ps(∂Rnlm, basis::AtomicOrbitals,
                      X::AbstractVector{<: SVector{3}}, ps::NamedTuple, st)
-    TR = eltype(eltype(X))
-    T = promote_type(eltype(∂Rnl), TR)
-    nR = length(X)
-    R = zeros(T, nR)
-    map!(norm, R, X)
-
-    Pn = evaluate(basis.Pn, R, ps.Pn, st.Pn)
-    Dn = evaluate(basis.Dn, R, ps.Dn, st.Dn)
+    T = promote_type(eltype(∂Rnlm), eltype(eltype(X)))
+    r = map(norm, X)
+    Rn = evaluate(basis.Rnl, r, ps.Rnl, st.Rnl)
     Ylm = evaluate(basis.Ylm, X)   # angular basis, param-free
-    ∂Pn = zeros(T, size(Pn))
-    ∂Dn = zeros(T, size(Dn))
+    ∂Rn = zeros(T, size(Rn))
+    nX = length(X)
 
-    for (i, b) in enumerate(basis.specidx)
-        @simd ivdep for j = 1:nR
-            ∂Pn[j, b[1]] += ∂Rnl[j, i] * Dn[j, b[2]] * Ylm[j, b[3]]
-            ∂Dn[j, b[2]] += ∂Rnl[j, i] * Pn[j, b[1]] * Ylm[j, b[3]]
+    for (i, (k, y)) in enumerate(basis.specidx)
+        @simd ivdep for j = 1:nX
+            ∂Rn[j, k] += ∂Rnlm[j, i] * Ylm[j, y]
         end
     end
 
-    ∂p_Pn = pullback_ps(∂Pn, basis.Pn, R, ps.Pn, st.Pn)
-    ∂p_Dn = pullback_ps(∂Dn, basis.Dn, R, ps.Dn, st.Dn)
-    # Ylm has no parameters
-    return (Pn = ∂p_Pn, Dn = ∂p_Dn, Ylm = NamedTuple())
+    return (Rnl = pullback_ps(∂Rn, basis.Rnl, r, ps.Rnl, st.Rnl),
+            Ylm = NamedTuple())
 end
+
+# -------- ready-made example/test bases --------
+
+# `_rand_*` build example `AtomicOrbitals` over a Gaussian/Slater `SeparableRadial`
+# and a SpheriCart `SolidHarmonics` angular basis.
+function _rand_basis(N1=4, N2=3;
+    K::Int=1,
+    T::Type=Float64,
+    decay_type::AbstractDecayFunction=GaussianDecay(),
+    ζinit = (n, k) -> rand(T, n, k),
+    Dinit = (n, k) -> ones(T, n, k))
+
+    Pn = MonoBasis(N1 + 1)
+    Ylm = _default_ylm(N1 - 1)
+    spec_list = [(n1=n1, n2=n2, l=l, m=m)
+                 for n1 in 1:N1, n2 in 1:N2, l in 0:N1-1 for m in -l:l]
+    spec = SVector{length(spec_list)}(spec_list)
+    spec_ln = collect(unique((n1=s.n1, n2=s.n2, l=s.l) for s in spec))
+    nln = length(spec_ln)
+    Dn = construct_basis(ζinit(nln, K), Dinit(nln, K), decay_type, spec_ln)
+    Rnl = SeparableRadial(Pn, Dn)
+    return AtomicOrbitals(Rnl, Ylm, spec)
+end
+
+_rand_gaussian_basis(N1=4, N2=3, T=Float64) = _rand_basis(N1, N2; T=T)
+
+_rand_slater_basis(N1=4, N2=3, T=Float64) =
+        _rand_basis(N1, N2; T=T, decay_type = SlaterDecay())
+
+_rand_sto_basis(N1=4, N2=2, K=4, T=Float64) = _rand_basis(N1, N2; T=T, K=K,
+        ζinit = (n, k) -> rand(T, n, k),
+        Dinit = (n, k) -> rand(T, n, k))

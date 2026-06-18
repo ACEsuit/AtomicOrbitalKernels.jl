@@ -43,14 +43,15 @@ using StaticArrays, LinearAlgebra, Random, Test
             @test size(Plux) == (length(X), Nb)
             @test Plux ≈ P     # initialised params equal the stored params
 
-            # pullback w.r.t. parameters: directional finite-difference on Dn.ζ
+            # pullback w.r.t. parameters: directional finite-difference on Rnl.Dn.ζ
             ∂P = randn(length(X), Nb)
             ∂ps = AOK.pullback_ps(∂P, basis, X, ps, st)
-            ζ = ps.Dn.ζ
+            ζ = ps.Rnl.Dn.ζ
             V = randn(size(ζ))
-            g_analytic = sum(∂ps.Dn.ζ .* V)
+            g_analytic = sum(∂ps.Rnl.Dn.ζ .* V)
             lossζ(ζi) = sum(∂P .* evaluate(basis, X,
-                            (Pn = ps.Pn, Dn = (ζ = ζi, D = ps.Dn.D), Ylm = ps.Ylm), st))
+                            (Rnl = (Pn = ps.Rnl.Pn, Dn = (ζ = ζi, D = ps.Rnl.Dn.D)),
+                             Ylm = ps.Ylm), st))
             g_fd = (lossζ(ζ .+ h .* V) - lossζ(ζ .- h .* V)) / (2h)
             @test isapprox(g_analytic, g_fd; rtol = 1e-4, atol = 1e-6)
         end
