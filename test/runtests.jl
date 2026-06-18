@@ -21,6 +21,9 @@ include("fixtures.jl")
     @testset "3-center overlap" begin
         include("test_overlap_3c.jl")
     end
+    @testset "Atomic orbitals (eval)" begin
+        include("test_orbitals.jl")
+    end
     @testset "GPU (opt-in)" begin
         include("test_gpu.jl")
     end

@@ -28,6 +28,19 @@ using Unitful
 # `compile_basis(::BasisSet)` into a `GaussianBasisExt` package extension.
 using GaussianBasis: BasisSet
 
+# --- Atomic-orbital evaluation (moved from Polynomials4ML.AtomicOrbitals,
+# v0.6.1). Concrete Rnl·Ylm orbital types built on the P4ML AbstractP4MLBasis
+# interface; P4ML stays a dependency for radial building blocks (MonoBasis) and
+# the evaluation/AD/Lux machinery. SpheriCart supplies the angular Ylm.
+import Polynomials4ML: AbstractP4MLBasis, MonoBasis, BATCH,
+                       _valtype, _evaluate!, _static_params,
+                       _init_luxparams, _init_luxstate, pullback_ps,
+                       _generate_input
+import ACEbase: evaluate, evaluate_ed, natural_indices
+using SpheriCart: SolidHarmonics, ComplexSolidHarmonics, ComplexSphericalHarmonics
+using LinearAlgebra: norm
+using Random: AbstractRNG
+
 const ang2bohr = 1.8897261246257702
 
 include("units.jl")
@@ -36,9 +49,14 @@ include("adapt.jl")
 include("kernels_2c.jl")
 include("kernels_3c.jl")
 include("reference/Reference.jl")
+include("orbitals/atomicorbitals.jl")
 
 export compile_basis, adapt_basis,
        batch_overlap!, batch_overlap,
        batch_overlap_3c!, batch_overlap_3c
+
+# atomic-orbital evaluation API
+export AtomicOrbitals, RadialDecay, GaussianDecay, SlaterDecay
+export evaluate, evaluate_ed
 
 end # module AtomicOrbitalKernels
