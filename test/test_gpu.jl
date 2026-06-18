@@ -2,9 +2,12 @@
 
 using AtomicOrbitalKernels
 using AtomicOrbitalKernels: Reference
+import AtomicOrbitalKernels as AOK
 using Pkg
 using Random
 using Unitful
+using StaticArrays
+using LinearAlgebra
 
 const _DEPS = keys(Pkg.project().dependencies)
 
@@ -75,5 +78,32 @@ else
         batch_overlap_3c!(out_gpu, bc_gpu, posA_u, posB_u, posC_u)
         out_h = Array(out_gpu)
         @test maximum(abs, out_ref .- out_h) < 1f-3
+    end
+
+    @testset "GPU AtomicOrbitals eval ($(_gpu_name), Float32)" begin
+        basis = AOK._rand_gaussian_basis()
+        ps = (Pn = NamedTuple(),
+              Dn = (ζ = Matrix(basis.Dn.ζ), D = Matrix(basis.Dn.D)),
+              Ylm = NamedTuple())
+        st = (Pn = nothing, Dn = nothing, Ylm = nothing)
+
+        Xh = [@SVector randn(3) for _ = 1:64]
+        Pc = evaluate(basis, Xh, ps, st)             # CPU Float64 reference
+        _, dPc = evaluate_ed(basis, Xh, ps, st)
+
+        Xg = _gpu([SVector{3, Float32}(x) for x in Xh])
+        psg = (Pn = NamedTuple(),
+               Dn = (ζ = _gpu(Float32.(ps.Dn.ζ)), D = _gpu(Float32.(ps.Dn.D))),
+               Ylm = NamedTuple())
+
+        Pg = evaluate(basis, Xg, psg, st)
+        @test !(Pg isa Array)                        # ran on the device
+        @test norm(Array(Pg) .- Float32.(Pc)) / norm(Pc) < 1f-3
+
+        _, dPg = evaluate_ed(basis, Xg, psg, st)
+        dPh = Array(dPg)
+        num = maximum(norm(dPh[i] - SVector{3, Float32}(dPc[i])) for i in eachindex(dPh))
+        den = maximum(norm(SVector{3, Float32}(v)) for v in dPc)
+        @test num / den < 1f-2
     end
 end

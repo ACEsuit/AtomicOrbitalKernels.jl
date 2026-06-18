@@ -36,8 +36,9 @@ import Polynomials4ML: AbstractP4MLBasis, MonoBasis, BATCH,
                        _valtype, _evaluate!, _static_params,
                        _init_luxparams, _init_luxstate, pullback_ps,
                        _generate_input
-import ACEbase: evaluate, evaluate_ed, natural_indices
+import ACEbase: evaluate, evaluate_ed, evaluate!, evaluate_ed!, natural_indices
 using SpheriCart: SolidHarmonics, ComplexSolidHarmonics, ComplexSphericalHarmonics
+using GPUArraysCore: AbstractGPUArray
 using LinearAlgebra: norm
 using Random: AbstractRNG
 
@@ -50,6 +51,7 @@ include("kernels_2c.jl")
 include("kernels_3c.jl")
 include("reference/Reference.jl")
 include("orbitals/atomicorbitals.jl")
+include("orbitals/gpu_eval.jl")
 
 export compile_basis, adapt_basis,
        batch_overlap!, batch_overlap,
