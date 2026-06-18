@@ -1,7 +1,7 @@
 # Opt-in GPU tests. Skipped silently if no CUDA or Metal backend is functional.
 
-using GaussianBasisKernels
-using GaussianBasisKernels: Reference
+using AtomicOrbitalKernels
+using AtomicOrbitalKernels: Reference
 using Pkg
 using Random
 using Unitful

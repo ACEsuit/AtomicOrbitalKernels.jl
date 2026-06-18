@@ -1,7 +1,7 @@
 # Scaling sweep for the 2C / 3C overlap kernels.
 #
 # Before running this benchmark ensure that the development version of 
-# GaussianBasisKernels is added to the active project (e.g. `] add ..`)
+# AtomicOrbitalKernels is added to the active project (e.g. `] add ..`)
 #
 # Usage:
 #   julia --project=scaling -t auto scaling/scaling.jl              # CPU (Float64)
@@ -20,7 +20,7 @@
 const BACKEND = (isempty(ARGS) || ARGS[1] == "CPU") ? "CPU" : ARGS[1]
 const USE_GPU = BACKEND != "CPU"
 
-using GaussianBasisKernels
+using AtomicOrbitalKernels
 using GaussianBasis
 using Molecules
 using StaticArrays

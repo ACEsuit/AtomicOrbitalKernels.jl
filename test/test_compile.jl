@@ -1,5 +1,5 @@
-using GaussianBasisKernels
-using GaussianBasisKernels: CompiledBasis
+using AtomicOrbitalKernels
+using AtomicOrbitalKernels: CompiledBasis
 
 @testset "compile_basis: Si def2-SVP" begin
     bc = compile_basis(BS_SI_DEFSVP)

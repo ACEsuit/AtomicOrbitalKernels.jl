@@ -1,4 +1,4 @@
-# NVIDIA-specific optimisation plan for GaussianBasisKernels
+# NVIDIA-specific optimisation plan for AtomicOrbitalKernels
 
 This document is a stand-alone roadmap for adding a hand-tuned NVIDIA
 (CUDA.jl) implementation of the 2C / 3C Cartesian-Gaussian overlap kernels
@@ -183,7 +183,7 @@ When picked up on an A100-class machine:
 1. **Wire up the extension skeleton.** Add `[extensions] CUDAExt = "CUDA"`
    and `[weakdeps] CUDA = "..."` to [Project.toml](../../Project.toml).
    Create `ext/CUDAExt.jl/CUDAExt.jl` that imports `CUDA` and
-   `GaussianBasisKernels`, and defines `batch_overlap!(out::CuArray, ...)`
+   `AtomicOrbitalKernels`, and defines `batch_overlap!(out::CuArray, ...)`
    / `batch_overlap_3c!(out::CuArray, ...)` methods that take over from
    the KA path. Initial body: just call into the same KA kernel — verify
    the extension loads and tests still pass.
@@ -212,7 +212,7 @@ When picked up on an A100-class machine:
 Each stage validated by:
 
 - `julia --project -e 'using Pkg; Pkg.test()'` — correctness pinned to
-  `GaussianBasisKernels.Reference` via the existing tests in
+  `AtomicOrbitalKernels.Reference` via the existing tests in
   [test/test_overlap_2c.jl](../../test/test_overlap_2c.jl) and
   [test/test_overlap_3c.jl](../../test/test_overlap_3c.jl). The CUDA
   branch goes through the same assertions, so any regression shows up.

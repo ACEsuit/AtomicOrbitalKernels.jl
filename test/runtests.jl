@@ -1,11 +1,11 @@
-using GaussianBasisKernels
+using AtomicOrbitalKernels
 using Test
 using Random
 using Unitful
 
 include("fixtures.jl")
 
-@testset "GaussianBasisKernels.jl" begin
+@testset "AtomicOrbitalKernels.jl" begin
     @testset "Units" begin
         include("test_units.jl")
     end

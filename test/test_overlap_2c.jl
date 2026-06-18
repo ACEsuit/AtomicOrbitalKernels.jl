@@ -1,5 +1,5 @@
-using GaussianBasisKernels
-using GaussianBasisKernels: Reference
+using AtomicOrbitalKernels
+using AtomicOrbitalKernels: Reference
 using Random
 using Unitful
 

@@ -1,4 +1,4 @@
-using GaussianBasisKernels: Reference
+using AtomicOrbitalKernels: Reference
 using GaussianBasis
 using Molecules
 using StaticArrays

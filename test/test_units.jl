@@ -1,4 +1,4 @@
-using GaussianBasisKernels: to_bohr, ang2bohr
+using AtomicOrbitalKernels: to_bohr, ang2bohr
 using Unitful
 
 @testset "to_bohr" begin

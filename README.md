@@ -1,6 +1,6 @@
-# GaussianBasisKernels
+# AtomicOrbitalKernels
 
-[![Build Status](https://github.com/cortner/GaussianBasisKernels.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/cortner/GaussianBasisKernels.jl/actions/workflows/CI.yml?query=branch%3Amain)
+[![Build Status](https://github.com/ACEsuit/AtomicOrbitalKernels.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/ACEsuit/AtomicOrbitalKernels.jl/actions/workflows/CI.yml?query=branch%3Amain)
 
 This Julia package provides somewhat experimental (but very usable)
 batched, backend-agnostic GPU/CPU kernels for Cartesian-Gaussian basis-set
@@ -12,7 +12,7 @@ limited scope.
 
 ## Scope
 
-| Category                          | Status in `GaussianBasisKernels.jl`                                  |
+| Category                          | Status in `AtomicOrbitalKernels.jl`                                  |
 | --------------------------------- | -------------------------------------------------------------------- |
 | 2-center Cartesian overlap        | **Implemented** (mirrors `GaussianBasis.overlap`)                    |
 | 3-center Cartesian overlap        | **Added** (extension: not present in GaussianBasis.jl)               |
@@ -34,7 +34,7 @@ has no equivalent in GaussianBasis.jl. Its `ERI_2e3c` is a different,
 
 ```julia
 using GaussianBasis, Molecules, StaticArrays, Unitful
-using GaussianBasisKernels
+using AtomicOrbitalKernels
 
 # 1. Build a Cartesian basis set the usual GaussianBasis.jl way.
 atom = Molecules.Atom(14, 28.0855, SA[0.0, 0.0, 0.0])
@@ -78,16 +78,16 @@ batch_overlap_3c!(out3, basis, posA[:, 1:128], posB[:, 1:128], posC)
   exactly. For shells with `l ≥ 2` the contraction uses a linear stride of
   `2l+1` rather than `nbf = (l+1)(l+2)/2`, which produces deliberate index
   aliasing — preserved for bit-for-bit compatibility with the bundled scalar
-  reference (`GaussianBasisKernels.Reference`).
+  reference (`AtomicOrbitalKernels.Reference`).
 
 ## Reference implementation
 
 The pedagogical scalar implementation lives in the non-exported submodule
-`GaussianBasisKernels.Reference`. It is what the test suite checks against and
+`AtomicOrbitalKernels.Reference`. It is what the test suite checks against and
 is available to downstream code:
 
 ```julia
-using GaussianBasisKernels: Reference
+using AtomicOrbitalKernels: Reference
 # Reference.batch_S_pair_ref!(out, BS, posA, posB)   # positions: plain Å
 # Reference.batch_V_triple_ref!(out, BS, posA, posB, posC)
 ```

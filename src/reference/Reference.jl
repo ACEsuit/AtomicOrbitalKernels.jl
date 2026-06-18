@@ -1,11 +1,11 @@
 """
-    GaussianBasisKernels.Reference
+    AtomicOrbitalKernels.Reference
 
 Pedagogical scalar implementation of the Cartesian-Gaussian 2- and 3-center
 overlap integrals used as the correctness oracle for the batched
 KernelAbstractions kernels. Mirrors the prototype's `prototype/micro/gaussints.jl`.
 
-Not exported. Access via `GaussianBasisKernels.Reference.<name>`. Used by the
+Not exported. Access via `AtomicOrbitalKernels.Reference.<name>`. Used by the
 package test suite and available to downstream code that wants to sanity-check
 the kernel output.
 """

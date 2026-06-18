@@ -1,5 +1,5 @@
 """
-    GaussianBasisKernels
+    AtomicOrbitalKernels
 
 Fast batched GPU kernels for Cartesian-Gaussian basis-set integrals, built on
 KernelAbstractions. Currently implements:
@@ -15,7 +15,7 @@ unimplemented operations — call GaussianBasis.jl directly for those on CPU.
 See the README for a quickstart and a full scope comparison with
 GaussianBasis.jl.
 """
-module GaussianBasisKernels
+module AtomicOrbitalKernels
 
 using StaticArrays
 using KernelAbstractions
@@ -41,4 +41,4 @@ export compile_basis, adapt_basis,
        batch_overlap!, batch_overlap,
        batch_overlap_3c!, batch_overlap_3c
 
-end # module GaussianBasisKernels
+end # module AtomicOrbitalKernels

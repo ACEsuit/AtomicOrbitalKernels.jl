@@ -1,7 +1,7 @@
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 GaussianBasis = "9bb1a3dc-0d1c-467e-84f5-0c4ef701360a"
-GaussianBasisKernels = "aa7a2209-7a51-48b2-9f84-4fb7a35f78a5"
+AtomicOrbitalKernels = "aa7a2209-7a51-48b2-9f84-4fb7a35f78a5"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 MLDataDevices = "7e8f7934-dd98-4c1a-8fe8-92b47a384d40"
 Molecules = "5de6a177-b489-40a9-b2f4-524242b9b679"
