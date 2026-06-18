@@ -47,9 +47,7 @@ else
     const ArrayCtor = Array
     const FT = Float64
     move(x) = x
-end
-
-@show dev 
+end 
 
 ## --- basis --------------------------------------------------------------
 
