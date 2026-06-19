@@ -145,37 +145,34 @@ end
 
 # ---- parameter pullback ----
 
-# one work-item per radial function k; the inner m/i loops accumulate into the
-# uniquely-owned (k,m) slots of ∂ζ, ∂D, so no atomics are needed.
+# parameter pullback. ∂ζ[k,m] / ∂D[k,m] are reductions over the nX points, so to
+# parallelize over the (large) point index i we accumulate into the shared (k,m)
+# slots with atomics. One work-item per (i, k); the small contraction index m is
+# looped inside (fx and rᵖ are computed once per work-item). A segmented /
+# workgroup reduction would cut the nX-way atomic contention further; deferred.
 @kernel function _gtostoradials_pb_ka!(∂ζ, ∂D, @Const(∂R), @Const(r),
                                        @Const(ζ), @Const(D), @Const(poly), tag)
-    k = @index(Global)
+    i, k = @index(Global, NTuple)
     K = size(ζ, 2)
-    nX = length(r)
-    @inbounds for m = 1:K
-        ζkm = ζ[k, m]; Dkm = D[k, m]
-        ∂ζkm = zero(eltype(∂ζ))
-        ∂Dkm = zero(eltype(∂D))
-        for i = 1:nX
-            ri = r[i]
-            fx = _decay(tag, ri)
-            g  = ∂R[i, k] * ri^poly[k]
-            a  = exp(-ζkm * fx)
-            ∂Dkm += g * a
-            ∂ζkm += g * Dkm * a * (-fx)
+    @inbounds begin
+        ri = r[i]
+        fx = _decay(tag, ri)
+        g  = ∂R[i, k] * ri^poly[k]
+        for m = 1:K
+            a = exp(-ζ[k, m] * fx)
+            KA.@atomic ∂D[k, m] += g * a
+            KA.@atomic ∂ζ[k, m] += g * D[k, m] * a * (-fx)
         end
-        ∂ζ[k, m] = ∂ζkm
-        ∂D[k, m] = ∂Dkm
     end
 end
 
 function pullback_ps(∂R, basis::GSRadials, r::BATCH, ps, st)
     T = promote_type(eltype(∂R), eltype(ps.ζ), eltype(ps.D))
-    ∂ζ = similar(ps.ζ, T)
-    ∂D = similar(ps.D, T)
+    ∂ζ = fill!(similar(ps.ζ, T), zero(T))
+    ∂D = fill!(similar(ps.D, T), zero(T))
     backend = KA.get_backend(∂ζ)
     _gtostoradials_pb_ka!(backend)(∂ζ, ∂D, ∂R, r, ps.ζ, ps.D, st.poly,
-                            _decaytag(basis); ndrange = size(ps.ζ, 1))
+                            _decaytag(basis); ndrange = size(∂R))
     KA.synchronize(backend)
     return (ζ = ∂ζ, D = ∂D)
 end
