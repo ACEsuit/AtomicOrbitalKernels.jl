@@ -106,6 +106,9 @@ function evaluate(basis::AtomicOrbitals, X::BATCH, ps, st)
     r = norm.(X)
     Rnl = evaluate(basis.Rnl, r, ps.Rnl, st.Rnl)
     Ylm = evaluate(basis.Ylm, X, ps.Ylm, st.Ylm)
+    # `Rnl` and `Ylm` come from independent kernel launches; make sure both are
+    # finished before the product kernel consumes them.
+    KA.synchronize(backend)
     _aorb_val_ka!(backend)(Rnlm, Rnl, Ylm, st.iR, st.iY; ndrange = size(Rnlm))
     KA.synchronize(backend)
     return Rnlm
@@ -121,6 +124,9 @@ function evaluate_ed(basis::AtomicOrbitals, X::BATCH, ps, st)
     r = norm.(X)
     Rnl, dRnl = evaluate_ed(basis.Rnl, r, ps.Rnl, st.Rnl)
     Ylm, dYlm = evaluate_ed(basis.Ylm, X, ps.Ylm, st.Ylm)
+    # `Rnl` and `Ylm` come from independent kernel launches; make sure both are
+    # finished before the product kernel consumes them.
+    KA.synchronize(backend)
     _aorb_ed_ka!(backend)(Rnlm, dRnlm, Rnl, dRnl, Ylm, dYlm, X, r, st.iR, st.iY;
                           ndrange = size(Rnlm))
     KA.synchronize(backend)
