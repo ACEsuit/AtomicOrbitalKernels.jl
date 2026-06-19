@@ -145,24 +145,32 @@ end
 
 # ---- parameter pullback ----
 
-# parameter pullback. ∂ζ[k,m] / ∂D[k,m] are reductions over the nX points, so to
-# parallelize over the (large) point index i we accumulate into the shared (k,m)
-# slots with atomics. One work-item per (i, k); the small contraction index m is
-# looped inside (fx and rᵖ are computed once per work-item). A segmented /
-# workgroup reduction would cut the nX-way atomic contention further; deferred.
+# parameter pullback. ∂ζ[k,m] / ∂D[k,m] are reductions over the nX points; a
+# per-point atomic scatter has nX-way contention per (k,m) slot, which dominates.
+# Instead use a *segmented* reduction: ndrange (ng, nRad, K), where each (gi,k,m)
+# work-item reduces a strided subset of the points (gi, gi+ng, …) in registers
+# and contributes a single atomic per slot — so contention is ng-way, not nX-way.
+# ng ≈ 128 (capped at nX) measured ~6–30× faster than per-point atomics on an A100.
+const _PB_NGROUPS = 128
+
 @kernel function _gtostoradials_pb_ka!(∂ζ, ∂D, @Const(∂R), @Const(r),
-                                       @Const(ζ), @Const(D), @Const(poly), tag)
-    i, k = @index(Global, NTuple)
-    K = size(ζ, 2)
+                              @Const(ζ), @Const(D), @Const(poly), tag, ng)
+    gi, k, m = @index(Global, NTuple)
+    nX = length(r)
     @inbounds begin
-        ri = r[i]
-        fx = _decay(tag, ri)
-        g  = ∂R[i, k] * ri^poly[k]
-        for m = 1:K
-            a = exp(-ζ[k, m] * fx)
-            KA.@atomic ∂D[k, m] += g * a
-            KA.@atomic ∂ζ[k, m] += g * D[k, m] * a * (-fx)
+        ζkm = ζ[k, m]; Dkm = D[k, m]
+        pζ = zero(eltype(∂ζ)); pD = zero(eltype(∂D))
+        i = gi
+        while i <= nX
+            ri = r[i]; fx = _decay(tag, ri)
+            a  = exp(-ζkm * fx)
+            gg = ∂R[i, k] * ri^poly[k]
+            pD += gg * a
+            pζ += gg * Dkm * a * (-fx)
+            i += ng
         end
+        KA.@atomic ∂D[k, m] += pD
+        KA.@atomic ∂ζ[k, m] += pζ
     end
 end
 
@@ -171,8 +179,10 @@ function pullback_ps(∂R, basis::GSRadials, r::BATCH, ps, st)
     ∂ζ = fill!(similar(ps.ζ, T), zero(T))
     ∂D = fill!(similar(ps.D, T), zero(T))
     backend = KA.get_backend(∂ζ)
+    nRad, K = size(ps.ζ)
+    ng = min(_PB_NGROUPS, length(r))
     _gtostoradials_pb_ka!(backend)(∂ζ, ∂D, ∂R, r, ps.ζ, ps.D, st.poly,
-                            _decaytag(basis); ndrange = size(∂R))
+                            _decaytag(basis), ng; ndrange = (ng, nRad, K))
     KA.synchronize(backend)
     return (ζ = ∂ζ, D = ∂D)
 end

@@ -185,6 +185,10 @@ end
 # `pullback_ps`. P4ML's generic rrule (on `AbstractP4MLBasis`) recomputes ∂X with
 # *static* params; this more-specific method uses the actual `ps` and avoids that.
 
+# parallel over the point j (the large dim), serial over orbitals i (the small
+# dim) — the textbook reduction layout. Benchmarked against an (i,j)-parallel
+# component-atomic variant: this is as fast or faster up to ~300 orbitals and
+# avoids the extra buffer + pack kernel, so we keep it.
 @kernel function _aorb_pbx_ka!(∂X, @Const(∂Rnlm), @Const(dRnlm))
     j = @index(Global)
     acc = zero(eltype(∂X))
