@@ -6,9 +6,8 @@ const NT_NLM = NamedTuple{(:n, :l, :m), Tuple{Int, Int, Int}}
 _ylm_valtype(::SolidHarmonics, ::Type{<: SVector{3, S}}) where {S} = S
 _default_ylm(L) = SolidHarmonics(L)
 
-# the harmonics are parameter-free; their normalisation prefactors `Flm` are
-# their (non-trainable) state.
-_static_params(::SolidHarmonics) = NamedTuple()
+# the harmonics are parameter-free (empty `_static_params` via the `Any`
+# fallback); their normalisation prefactors `Flm` are their non-trainable state.
 _static_state(Ylm::SolidHarmonics) = (Flm = Ylm.Flm,)
 
 """
@@ -135,7 +134,7 @@ evaluate_ed(basis::AtomicOrbitals, X::BATCH) =
 function evaluate_ref(basis::AtomicOrbitals, X::AbstractVector{<: SVector{3}},
                       ps = _static_params(basis), st = _static_state(basis))
     r = norm.(X)
-    Rn = evaluate_ref(basis.Rnl, r, ps.Rnl)
+    Rn = evaluate_ref(basis.Rnl, r, ps.Rnl, st.Rnl)
     Ylm = evaluate(basis.Ylm, X, ps.Ylm, st.Ylm)
     return Rn[:, basis.radidx] .* Ylm[:, basis.ylmidx]
 end

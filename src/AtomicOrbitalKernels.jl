@@ -34,9 +34,11 @@ using GaussianBasis: BasisSet
 # machinery, SpheriCart supplies the angular Ylm. Evaluation is KernelAbstractions
 # based on both CPU and GPU backends.
 import Polynomials4ML: AbstractP4MLBasis, BATCH,
-                       _valtype, _gradtype, _static_params,
+                       _valtype, _gradtype,
                        _init_luxparams, _init_luxstate, pullback_ps,
                        _generate_input
+# NB: `_static_params`/`_static_state` are intentionally NOT imported — this
+# package owns them (see utils.jl), so we can give them `Any` fallbacks.
 import ACEbase: evaluate, evaluate_ed, natural_indices
 using SpheriCart: SolidHarmonics
 using LinearAlgebra: norm

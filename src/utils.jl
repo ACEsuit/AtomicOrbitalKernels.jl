@@ -14,7 +14,10 @@ _alloc_val(basis, X, ps, st) =
 _alloc_grad(basis, X, ps, st) =
         similar(X, _gradtype(basis, X, ps, st), length(X), length(basis))
 
-# non-trainable "static state", analogous to `_static_params`. Empty fallback;
-# bases that carry state (the SpheriCart `Ylm` `Flm`, the radial `poly`, the
-# orbital index maps) specialise it.
-_static_state(::AbstractP4MLBasis) = NamedTuple()
+# `_static_params` (params used by the parameter-free evaluation) and
+# `_static_state` (non-trainable state) are both owned by this package — neither
+# is imported from Polynomials4ML — so their empty fallbacks are defined on
+# `Any`. Bases that carry params/state (the radial ζ/D/poly, the SpheriCart
+# `Ylm` `Flm`, the orbital index maps) specialise them.
+_static_params(::Any) = NamedTuple()
+_static_state(::Any) = NamedTuple()

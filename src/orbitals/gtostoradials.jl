@@ -72,6 +72,7 @@ _init_luxstate(b::GSRadials) = _static_state(b)
     ri = r[i]
     fx = _decay(tag, ri)
     s = zero(eltype(R))
+    # TODO: can this be unrolled?
     @inbounds for m = 1:K
         s += D[k, m] * exp(-ζ[k, m] * fx)
     end
@@ -86,6 +87,7 @@ end
     dfx = _ddecay(tag, ri)
     s = zero(eltype(R))
     ds = zero(eltype(R))
+    # TODO: can this be unrolled?
     @inbounds for m = 1:K
         a = D[k, m] * exp(-ζ[k, m] * fx)
         s += a
@@ -123,8 +125,10 @@ evaluate_ed(basis::GSRadials, r::BATCH) =
 
 # ---- plain forward-only reference (testing oracle) ----
 
-function evaluate_ref(basis::GSRadials, r::AbstractVector, ps = _static_params(basis))
+function evaluate_ref(basis::GSRadials, r::AbstractVector,
+                      ps = _static_params(basis), st = _static_state(basis))
     ζ, D = ps.ζ, ps.D
+    poly = st.poly
     nRad, K = size(ζ)
     nX = length(r)
     R = zeros(promote_type(eltype(r), eltype(ζ), eltype(D)), nX, nRad)
@@ -134,7 +138,7 @@ function evaluate_ref(basis::GSRadials, r::AbstractVector, ps = _static_params(b
         for m = 1:K
             s += D[k, m] * exp(-ζ[k, m] * fx)
         end
-        R[i, k] = r[i]^basis.poly[k] * s
+        R[i, k] = r[i]^poly[k] * s
     end
     return R
 end
