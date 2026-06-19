@@ -82,6 +82,14 @@ _init_luxparams(rng::AbstractRNG, b::AtomicOrbitals) =
 _init_luxstate(rng::AbstractRNG, b::AtomicOrbitals) = _static_state(b)
 
 # ---- KA evaluation (default path; CPU and GPU) ----
+#
+# `Rnl` and `Ylm` are independent and could in principle be evaluated
+# concurrently. Right now they run serially: each sub-`evaluate` synchronises
+# internally, and a single backend stream runs kernels in issue order anyway.
+# True overlap needs separate streams — backend-specific (breaks the KA-only
+# path) and marginal once a kernel saturates the device. The portable win is
+# launch-ahead (non-syncing launchers + one sync before the product kernel);
+# deferred for now.
 
 @kernel function _aorb_val_ka!(Rnlm, @Const(Rnl), @Const(Ylm), @Const(iR), @Const(iY))
     j, i = @index(Global, NTuple)
