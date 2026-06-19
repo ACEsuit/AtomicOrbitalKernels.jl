@@ -6,8 +6,9 @@ const NT_NLM = NamedTuple{(:n, :l, :m), Tuple{Int, Int, Int}}
 _ylm_valtype(::SolidHarmonics, ::Type{<: SVector{3, S}}) where {S} = S
 _default_ylm(L) = SolidHarmonics(L)
 
-# the harmonics are parameter-free (empty `_static_params` via the `Any`
-# fallback); their normalisation prefactors `Flm` are their non-trainable state.
+# the harmonics are parameter-free; their normalisation prefactors `Flm` are
+# their non-trainable state.
+_static_params(::SolidHarmonics) = NamedTuple()
 _static_state(Ylm::SolidHarmonics) = (Flm = Ylm.Flm,)
 
 """
@@ -75,27 +76,27 @@ _static_params(b::AtomicOrbitals) =
 # index maps are non-trainable state, so they ride along with device transforms
 _static_state(b::AtomicOrbitals) =
         (Rnl = _static_state(b.Rnl), Ylm = _static_state(b.Ylm),
-         iR = collect(b.radidx), iY = collect(b.ylmidx))
+         iR = b.radidx, iY = b.ylmidx)
 _init_luxparams(rng::AbstractRNG, b::AtomicOrbitals) =
         (Rnl = _init_luxparams(rng, b.Rnl), Ylm = _init_luxparams(rng, b.Ylm))
 _init_luxstate(rng::AbstractRNG, b::AtomicOrbitals) = _static_state(b)
 
 # ---- KA evaluation (default path; CPU and GPU) ----
 
-@kernel function _aorb_val_ka!(Rnlm, @Const(Rn), @Const(Ylm), @Const(iR), @Const(iY))
+@kernel function _aorb_val_ka!(Rnlm, @Const(Rnl), @Const(Ylm), @Const(iR), @Const(iY))
     j, i = @index(Global, NTuple)
-    @inbounds Rnlm[j, i] = Rn[j, iR[i]] * Ylm[j, iY[i]]
+    @inbounds Rnlm[j, i] = Rnl[j, iR[i]] * Ylm[j, iY[i]]
 end
 
-@kernel function _aorb_ed_ka!(Rnlm, dRnlm, @Const(Rn), @Const(dRn), @Const(Ylm),
+@kernel function _aorb_ed_ka!(Rnlm, dRnlm, @Const(Rnl), @Const(dRnl), @Const(Ylm),
                               @Const(dYlm), @Const(X), @Const(r), @Const(iR), @Const(iY))
     j, i = @index(Global, NTuple)
     @inbounds begin
         k = iR[i]; y = iY[i]
-        rn = Rn[j, k]; yl = Ylm[j, y]
+        rn = Rnl[j, k]; yl = Ylm[j, y]
         Rnlm[j, i] = rn * yl
         drj = X[j] / r[j]
-        dRnlm[j, i] = dRn[j, k] * drj * yl + rn * dYlm[j, y]
+        dRnlm[j, i] = dRnl[j, k] * drj * yl + rn * dYlm[j, y]
     end
 end
 
@@ -103,9 +104,9 @@ function evaluate(basis::AtomicOrbitals, X::BATCH, ps, st)
     Rnlm = _alloc_val(basis, X, ps, st)
     backend = KA.get_backend(Rnlm)
     r = norm.(X)
-    Rn = evaluate(basis.Rnl, r, ps.Rnl, st.Rnl)
+    Rnl = evaluate(basis.Rnl, r, ps.Rnl, st.Rnl)
     Ylm = evaluate(basis.Ylm, X, ps.Ylm, st.Ylm)
-    _aorb_val_ka!(backend)(Rnlm, Rn, Ylm, st.iR, st.iY; ndrange = size(Rnlm))
+    _aorb_val_ka!(backend)(Rnlm, Rnl, Ylm, st.iR, st.iY; ndrange = size(Rnlm))
     KA.synchronize(backend)
     return Rnlm
 end
@@ -118,9 +119,9 @@ function evaluate_ed(basis::AtomicOrbitals, X::BATCH, ps, st)
     dRnlm = _alloc_grad(basis, X, ps, st)
     backend = KA.get_backend(Rnlm)
     r = norm.(X)
-    Rn, dRn = evaluate_ed(basis.Rnl, r, ps.Rnl, st.Rnl)
+    Rnl, dRnl = evaluate_ed(basis.Rnl, r, ps.Rnl, st.Rnl)
     Ylm, dYlm = evaluate_ed(basis.Ylm, X, ps.Ylm, st.Ylm)
-    _aorb_ed_ka!(backend)(Rnlm, dRnlm, Rn, dRn, Ylm, dYlm, X, r, st.iR, st.iY;
+    _aorb_ed_ka!(backend)(Rnlm, dRnlm, Rnl, dRnl, Ylm, dYlm, X, r, st.iR, st.iY;
                           ndrange = size(Rnlm))
     KA.synchronize(backend)
     return Rnlm, dRnlm
@@ -134,9 +135,9 @@ evaluate_ed(basis::AtomicOrbitals, X::BATCH) =
 function evaluate_ref(basis::AtomicOrbitals, X::AbstractVector{<: SVector{3}},
                       ps = _static_params(basis), st = _static_state(basis))
     r = norm.(X)
-    Rn = evaluate_ref(basis.Rnl, r, ps.Rnl, st.Rnl)
+    Rnl = evaluate_ref(basis.Rnl, r, ps.Rnl, st.Rnl)
     Ylm = evaluate(basis.Ylm, X, ps.Ylm, st.Ylm)
-    return Rn[:, basis.radidx] .* Ylm[:, basis.ylmidx]
+    return Rnl[:, basis.radidx] .* Ylm[:, basis.ylmidx]
 end
 
 # ---- parameter pullback ----
@@ -146,15 +147,15 @@ function pullback_ps(∂Rnlm, basis::AtomicOrbitals, X::AbstractVector{<: SVecto
                      ps::NamedTuple, st)
     T = promote_type(eltype(∂Rnlm), eltype(eltype(X)))
     r = norm.(X)
-    Rn = evaluate(basis.Rnl, r, ps.Rnl, st.Rnl)
+    Rnl = evaluate(basis.Rnl, r, ps.Rnl, st.Rnl)
     Ylm = evaluate(basis.Ylm, X, ps.Ylm, st.Ylm)
-    ∂Rn = zeros(T, size(Rn))
+    ∂Rnl = zeros(T, size(Rnl))
     nX = length(X)
     for i = 1:length(basis)
         iR = basis.radidx[i]; iY = basis.ylmidx[i]
         for j = 1:nX
-            ∂Rn[j, iR] += ∂Rnlm[j, i] * Ylm[j, iY]
+            ∂Rnl[j, iR] += ∂Rnlm[j, i] * Ylm[j, iY]
         end
     end
-    return (Rnl = pullback_ps(∂Rn, basis.Rnl, r, ps.Rnl, st.Rnl), Ylm = NamedTuple())
+    return (Rnl = pullback_ps(∂Rnl, basis.Rnl, r, ps.Rnl, st.Rnl), Ylm = NamedTuple())
 end
