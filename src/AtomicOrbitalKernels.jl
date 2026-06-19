@@ -40,6 +40,7 @@ import Polynomials4ML: AbstractP4MLBasis, BATCH,
 # NB: `_static_params`/`_static_state` are intentionally NOT imported — this
 # package owns them (see utils.jl), so we can give them `Any` fallbacks.
 import ACEbase: evaluate, evaluate_ed, natural_indices
+import ChainRulesCore: rrule, NoTangent, unthunk
 using SpheriCart: SolidHarmonics
 using LinearAlgebra: norm
 using Random: AbstractRNG

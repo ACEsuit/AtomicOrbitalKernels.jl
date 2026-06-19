@@ -145,21 +145,34 @@ end
 
 # ---- parameter pullback ----
 
-# TODO: move this to a KA implementation
-function pullback_ps(∂R, basis::GSRadials, r::BATCH, ps, st)
-    ζ, D = ps.ζ, ps.D
-    nRad, K = size(ζ)
-    nX = length(r)
-    ∂ζ = fill!(similar(ζ), 0)
-    ∂D = fill!(similar(D), 0)
-    for k = 1:nRad, i = 1:nX
-        fx = _decay(basis, r[i])
-        rp = r[i]^basis.poly[k]
+# parameter pullback. ∂ζ[k,m] / ∂D[k,m] are reductions over the nX points, so to
+# parallelize over the (large) point index i we accumulate into the shared (k,m)
+# slots with atomics. One work-item per (i, k); the small contraction index m is
+# looped inside (fx and rᵖ are computed once per work-item). A segmented /
+# workgroup reduction would cut the nX-way atomic contention further; deferred.
+@kernel function _gtostoradials_pb_ka!(∂ζ, ∂D, @Const(∂R), @Const(r),
+                                       @Const(ζ), @Const(D), @Const(poly), tag)
+    i, k = @index(Global, NTuple)
+    K = size(ζ, 2)
+    @inbounds begin
+        ri = r[i]
+        fx = _decay(tag, ri)
+        g  = ∂R[i, k] * ri^poly[k]
         for m = 1:K
             a = exp(-ζ[k, m] * fx)
-            ∂D[k, m] += ∂R[i, k] * rp * a
-            ∂ζ[k, m] += ∂R[i, k] * rp * D[k, m] * a * (-fx)
+            KA.@atomic ∂D[k, m] += g * a
+            KA.@atomic ∂ζ[k, m] += g * D[k, m] * a * (-fx)
         end
     end
+end
+
+function pullback_ps(∂R, basis::GSRadials, r::BATCH, ps, st)
+    T = promote_type(eltype(∂R), eltype(ps.ζ), eltype(ps.D))
+    ∂ζ = fill!(similar(ps.ζ, T), zero(T))
+    ∂D = fill!(similar(ps.D, T), zero(T))
+    backend = KA.get_backend(∂ζ)
+    _gtostoradials_pb_ka!(backend)(∂ζ, ∂D, ∂R, r, ps.ζ, ps.D, st.poly,
+                            _decaytag(basis); ndrange = size(∂R))
+    KA.synchronize(backend)
     return (ζ = ∂ζ, D = ∂D)
 end

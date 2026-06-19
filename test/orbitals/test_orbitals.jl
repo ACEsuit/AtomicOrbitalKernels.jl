@@ -48,16 +48,28 @@ using ForwardDiff: Dual, value, partials
             Plux, _ = basis(X, ps, st)
             @test Plux ≈ P     # initialised params equal the stored params
 
-            # parameter pullback on ζ, checked against a ForwardDiff directional
-            # derivative (machine precision; same quantity as the analytic pullback)
+            # parameter pullback (ζ and D), checked against ForwardDiff
+            # directional derivatives (same quantity as the analytic pullback)
             ∂P = randn(length(X), Nb)
             ∂ps = AOK.pullback_ps(∂P, basis, X, ps, st)
-            ζ = ps.Rnl.ζ
-            V = randn(size(ζ))
-            g_analytic = sum(∂ps.Rnl.ζ .* V)
+            ζ = ps.Rnl.ζ;  D = ps.Rnl.D
+            V = randn(size(ζ));  W = randn(size(D))
             lossζ(ζi) = sum(∂P .* evaluate(basis, X,
-                            (Rnl = (ζ = ζi, D = ps.Rnl.D), Ylm = ps.Ylm), st))
-            @test g_analytic ≈ partials(lossζ(ζ .+ Dual(0.0, 1.0) .* V), 1)
+                            (Rnl = (ζ = ζi, D = D), Ylm = ps.Ylm), st))
+            lossD(Di) = sum(∂P .* evaluate(basis, X,
+                            (Rnl = (ζ = ζ, D = Di), Ylm = ps.Ylm), st))
+            @test sum(∂ps.Rnl.ζ .* V) ≈ partials(lossζ(ζ .+ Dual(0.0,1.0).*V), 1)
+            @test sum(∂ps.Rnl.D .* W) ≈ partials(lossD(D .+ Dual(0.0,1.0).*W), 1)
+
+            # rrule merges the X-pullback (via evaluate_ed) and the param pullback
+            y, pb = AOK.rrule(evaluate, basis, X, ps, st)
+            @test y ≈ P
+            _, _, ∂X, ∂ps_r, _ = pb(∂P)
+            @test ∂ps_r.Rnl.ζ ≈ ∂ps.Rnl.ζ
+            @test ∂ps_r.Rnl.D ≈ ∂ps.Rnl.D
+            # vjp identity: ∑ ∂P .* d/dε ϕ(X+εU) == ∑ dot(∂X[j], U[j])  (Yd, U above)
+            @test sum(∂P .* partials.(Yd, 1)) ≈
+                  sum(dot(∂X[j], U[j]) for j in eachindex(X))
         end
     end
 end

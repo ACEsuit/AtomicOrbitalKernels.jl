@@ -33,4 +33,22 @@ include(joinpath(@__DIR__, "..", "utils_gpu.jl"))
     num = maximum(norm(dPh[i] - SVector{3, Float32}(dPc[i])) for i in eachindex(dPh))
     den = maximum(norm(SVector{3, Float32}(v)) for v in dPc)
     @test num / den < 1f-2
+
+    # parameter pullback + rrule on the device, vs the CPU reference
+    psc = AOK._static_params(basis); stc = AOK._static_state(basis)
+    ∂P = randn(length(Xh), length(basis))
+    _, pbc = AOK.rrule(evaluate, basis, Xh, psc, stc)
+    _, _, ∂Xc, ∂ps_c, _ = pbc(∂P)
+
+    ∂Pg = dev(Float32.(∂P))
+    _, pbg = AOK.rrule(evaluate, basis, Xg, psg, stg)
+    _, _, ∂Xg, ∂ps_g, _ = pbg(∂Pg)
+
+    @test dev === identity || !(∂ps_g.Rnl.ζ isa Array)   # gradients stay on device
+    @test norm(Array(∂ps_g.Rnl.ζ) .- Float32.(∂ps_c.Rnl.ζ)) / norm(∂ps_c.Rnl.ζ) < 1f-2
+    @test norm(Array(∂ps_g.Rnl.D) .- Float32.(∂ps_c.Rnl.D)) / norm(∂ps_c.Rnl.D) < 1f-2
+    ∂Xgh = Array(∂Xg)
+    nX = maximum(norm(∂Xgh[i] - SVector{3,Float32}(∂Xc[i])) for i in eachindex(∂Xc))
+    dX = maximum(norm(SVector{3,Float32}(v)) for v in ∂Xc)
+    @test nX / dX < 1f-2
 end

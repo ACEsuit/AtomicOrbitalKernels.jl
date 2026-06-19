@@ -156,20 +156,60 @@ end
 
 # ---- parameter pullback ----
 
-# TODO: move this to a KA implementation
-function pullback_ps(∂Rnlm, basis::AtomicOrbitals, X::AbstractVector{<: SVector{3}},
-                     ps::NamedTuple, st)
+# contract the orbital cotangent back onto the radial cotangent ∂Rnl. Several
+# orbitals share a radial index `iR`, so the scatter collides → atomic add. A
+# future perf path is an atomic-free gather over a radial→orbital inverse map.
+@kernel function _aorb_pbrad_ka!(∂Rnl, @Const(∂Rnlm), @Const(Ylm),
+                                 @Const(iR), @Const(iY))
+    j, i = @index(Global, NTuple)
+    @inbounds KA.@atomic ∂Rnl[j, iR[i]] += ∂Rnlm[j, i] * Ylm[j, iY[i]]
+end
+
+function pullback_ps(∂Rnlm, basis::AtomicOrbitals, X::BATCH, ps::NamedTuple, st)
     T = promote_type(eltype(∂Rnlm), eltype(eltype(X)))
     r = norm.(X)
-    Rnl = evaluate(basis.Rnl, r, ps.Rnl, st.Rnl)
     Ylm = evaluate(basis.Ylm, X, ps.Ylm, st.Ylm)
-    ∂Rnl = zeros(T, size(Rnl))
-    nX = length(X)
-    for i = 1:length(basis)
-        iR = basis.radidx[i]; iY = basis.ylmidx[i]
-        for j = 1:nX
-            ∂Rnl[j, iR] += ∂Rnlm[j, i] * Ylm[j, iY]
-        end
+    ∂Rnl = fill!(similar(Ylm, T, length(X), length(basis.Rnl)), zero(T))
+    backend = KA.get_backend(∂Rnl)
+    KA.synchronize(backend)
+    _aorb_pbrad_ka!(backend)(∂Rnl, ∂Rnlm, Ylm, st.iR, st.iY; ndrange = size(∂Rnlm))
+    KA.synchronize(backend)
+    return (Rnl = pullback_ps(∂Rnl, basis.Rnl, r, ps.Rnl, st.Rnl),
+            Ylm = NamedTuple())
+end
+
+# ---- ChainRules: differentiable w.r.t. positions X and params ps ----
+#
+# The X-pullback uses the spatial Jacobian `dRnlm` from `evaluate_ed` (forward
+# mode in X; each output depends only on its own point); the param-pullback uses
+# `pullback_ps`. P4ML's generic rrule (on `AbstractP4MLBasis`) recomputes ∂X with
+# *static* params; this more-specific method uses the actual `ps` and avoids that.
+
+@kernel function _aorb_pbx_ka!(∂X, @Const(∂Rnlm), @Const(dRnlm))
+    j = @index(Global)
+    acc = zero(eltype(∂X))
+    @inbounds for i = 1:size(dRnlm, 2)
+        acc += ∂Rnlm[j, i] * dRnlm[j, i]
     end
-    return (Rnl = pullback_ps(∂Rnl, basis.Rnl, r, ps.Rnl, st.Rnl), Ylm = NamedTuple())
+    @inbounds ∂X[j] = acc
+end
+
+function _aorb_pullback_x(∂Rnlm, dRnlm)
+    S = promote_type(eltype(∂Rnlm), eltype(eltype(dRnlm)))
+    ∂X = similar(dRnlm, SVector{3, S}, size(dRnlm, 1))
+    backend = KA.get_backend(∂X)
+    _aorb_pbx_ka!(backend)(∂X, ∂Rnlm, dRnlm; ndrange = length(∂X))
+    KA.synchronize(backend)
+    return ∂X
+end
+
+function rrule(::typeof(evaluate), basis::AtomicOrbitals, X::BATCH, ps, st)
+    Rnlm, dRnlm = evaluate_ed(basis, X, ps, st)
+    function _pb(_∂)
+        ∂Rnlm = unthunk(_∂)
+        ∂X  = _aorb_pullback_x(∂Rnlm, dRnlm)
+        ∂ps = pullback_ps(∂Rnlm, basis, X, ps, st)
+        return (NoTangent(), NoTangent(), ∂X, ∂ps, NoTangent())
+    end
+    return Rnlm, _pb
 end
