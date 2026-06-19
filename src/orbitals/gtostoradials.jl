@@ -145,21 +145,37 @@ end
 
 # ---- parameter pullback ----
 
-# TODO: move this to a KA implementation
-function pullback_ps(∂R, basis::GSRadials, r::BATCH, ps, st)
-    ζ, D = ps.ζ, ps.D
-    nRad, K = size(ζ)
+# one work-item per radial function k; the inner m/i loops accumulate into the
+# uniquely-owned (k,m) slots of ∂ζ, ∂D, so no atomics are needed.
+@kernel function _gtostoradials_pb_ka!(∂ζ, ∂D, @Const(∂R), @Const(r),
+                                       @Const(ζ), @Const(D), @Const(poly), tag)
+    k = @index(Global)
+    K = size(ζ, 2)
     nX = length(r)
-    ∂ζ = fill!(similar(ζ), 0)
-    ∂D = fill!(similar(D), 0)
-    for k = 1:nRad, i = 1:nX
-        fx = _decay(basis, r[i])
-        rp = r[i]^basis.poly[k]
-        for m = 1:K
-            a = exp(-ζ[k, m] * fx)
-            ∂D[k, m] += ∂R[i, k] * rp * a
-            ∂ζ[k, m] += ∂R[i, k] * rp * D[k, m] * a * (-fx)
+    @inbounds for m = 1:K
+        ζkm = ζ[k, m]; Dkm = D[k, m]
+        ∂ζkm = zero(eltype(∂ζ))
+        ∂Dkm = zero(eltype(∂D))
+        for i = 1:nX
+            ri = r[i]
+            fx = _decay(tag, ri)
+            g  = ∂R[i, k] * ri^poly[k]
+            a  = exp(-ζkm * fx)
+            ∂Dkm += g * a
+            ∂ζkm += g * Dkm * a * (-fx)
         end
+        ∂ζ[k, m] = ∂ζkm
+        ∂D[k, m] = ∂Dkm
     end
+end
+
+function pullback_ps(∂R, basis::GSRadials, r::BATCH, ps, st)
+    T = promote_type(eltype(∂R), eltype(ps.ζ), eltype(ps.D))
+    ∂ζ = similar(ps.ζ, T)
+    ∂D = similar(ps.D, T)
+    backend = KA.get_backend(∂ζ)
+    _gtostoradials_pb_ka!(backend)(∂ζ, ∂D, ∂R, r, ps.ζ, ps.D, st.poly,
+                            _decaytag(basis); ndrange = size(ps.ζ, 1))
+    KA.synchronize(backend)
     return (ζ = ∂ζ, D = ∂D)
 end
