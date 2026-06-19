@@ -50,16 +50,17 @@ include("adapt.jl")
 include("kernels_2c.jl")
 include("kernels_3c.jl")
 include("reference/Reference.jl")
-include("orbitals/radial.jl")
+include("utils.jl")
+include("orbitals/gtostoradials.jl")
 include("orbitals/atomicorbitals.jl")
+include("orbitals/utils.jl")
 
 export compile_basis, adapt_basis,
        batch_overlap!, batch_overlap,
        batch_overlap_3c!, batch_overlap_3c
 
-# atomic-orbital evaluation API
-export AtomicOrbitals, Rnl, GaussianDecay, SlaterDecay
-export gaussian_orbitals, slater_orbitals, sto_orbitals
-export evaluate, evaluate_ed, evaluate_ref
+# atomic-orbital evaluation API (user-facing only)
+export evaluate, evaluate_ed
+export gaussian_orbitals, slater_orbitals
 
 end # module AtomicOrbitalKernels

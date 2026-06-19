@@ -7,9 +7,9 @@ using StaticArrays, LinearAlgebra, Random, Test
 @testset "construct + evaluate" begin
     rng = MersenneTwister(1234)
     h = 1e-6
-    for (lbl, basis) in (("gaussian", gaussian_orbitals()),
-                         ("slater",   slater_orbitals()),
-                         ("sto",      sto_orbitals()))
+    for (lbl, basis) in (("gaussian",   gaussian_orbitals()),
+                         ("slater",     slater_orbitals()),
+                         ("slater-K4",  slater_orbitals(; K = 4)))
         @testset "$lbl" begin
             Nb = length(basis)
             @test Nb > 0
