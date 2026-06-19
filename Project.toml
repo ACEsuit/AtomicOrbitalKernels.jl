@@ -27,10 +27,11 @@ Unitful            = "1"
 julia              = "1.11, 1.12"
 
 [extras]
-ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
-LuxCore     = "bb33d45b-7691-41d6-9220-0943567d0623"
-Pkg         = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-Test        = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+ForwardDiff   = "f6369f11-7733-5829-9624-2563aa707210"
+LuxCore       = "bb33d45b-7691-41d6-9220-0943567d0623"
+MLDataDevices = "7e8f7934-dd98-4c1a-8fe8-92b47a384d40"
+Pkg           = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
+Test          = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["ForwardDiff", "LuxCore", "Pkg", "Test"]
+test = ["ForwardDiff", "LuxCore", "MLDataDevices", "Pkg", "Test"]

@@ -1,4 +1,4 @@
-# Device tests for AtomicOrbitals evaluation. The backend (`dev` / `dev_name`)
+# Device tests for AtomicOrbitals evaluation. The backend (`dev` / `gpu_backend`)
 # comes from utils_gpu.jl; with no functional GPU, `dev = identity` and these
 # run on the CPU backend (in Float32).
 
@@ -9,7 +9,7 @@ using StaticArrays
 using LinearAlgebra
 include(joinpath(@__DIR__, "..", "utils_gpu.jl"))
 
-@testset "AtomicOrbitals eval ($(dev_name), Float32)" begin
+@testset "AtomicOrbitals eval ($(gpu_backend), Float32)" begin
     basis = gaussian_orbitals()
     Xh = [@SVector randn(3) for _ = 1:64]
     Pc = AOK.evaluate_ref(basis, Xh)              # CPU forward reference (Float64)

@@ -1,5 +1,5 @@
 # Device tests for the 2-center / 3-center overlap kernels. The backend (`dev` /
-# `dev_name`) comes from utils_gpu.jl; with no functional GPU, `dev = identity`
+# `gpu_backend`) comes from utils_gpu.jl; with no functional GPU, `dev = identity`
 # and these run on the CPU backend (in Float32).
 
 using AtomicOrbitalKernels
@@ -8,7 +8,7 @@ using Random
 using Unitful
 include(joinpath(@__DIR__, "utils_gpu.jl"))
 
-@testset "2C overlap ($(dev_name), Float32)" begin
+@testset "2C overlap ($(gpu_backend), Float32)" begin
     rng = MersenneTwister(101)
     bc = compile_basis(BS_SI_DEFSVP)
     N = bc.nbf_total
@@ -27,7 +27,7 @@ include(joinpath(@__DIR__, "utils_gpu.jl"))
     @test maximum(abs, out_ref .- out_h) < 1f-3
 end
 
-@testset "3C overlap ($(dev_name), Float32)" begin
+@testset "3C overlap ($(gpu_backend), Float32)" begin
     rng = MersenneTwister(202)
     bc = compile_basis(BS_SI_DEFSVP)
     N = bc.nbf_total
