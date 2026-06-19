@@ -3,6 +3,7 @@ using AtomicOrbitalKernels: evaluate, evaluate_ed, evaluate_ref
 import AtomicOrbitalKernels as AOK
 import LuxCore
 using StaticArrays, LinearAlgebra, Random, Test
+using ForwardDiff: Dual, value, partials
 
 @testset "construct + evaluate" begin
     rng = MersenneTwister(1234)
@@ -29,14 +30,17 @@ using StaticArrays, LinearAlgebra, Random, Test
             @test size(dP) == (length(X), Nb)
             @test eltype(eltype(dP)) == Float64    # SVector{3,Float64}
 
-            # finite-difference check of the spatial gradient
-            x0 = @SVector randn(3)
-            _, dp0 = evaluate_ed(basis, [x0])
-            for a = 1:3
-                ea = SVector(ntuple(i -> (i == a ? 1.0 : 0.0), 3))
-                fd = (evaluate(basis, [x0 + h*ea]) .- evaluate(basis, [x0 - h*ea])) ./ (2h)
-                @test maximum(abs(dp0[1, n][a] - fd[1, n]) for n = 1:Nb) < 1e-4
-            end
+            # ForwardDiff check of the spatial gradient: seed each point with a
+            # random direction `U`, so the dual partial of `evaluate_ref` is the
+            # directional derivative `dot(∇ϕ, U)`. Machine precision, and at the
+            # same time this checks that the reference accepts Dual inputs.
+            U  = [ @SVector randn(3) for _ = 1:length(X) ]
+            Xd = [ X[i] + Dual(0.0, 1.0) * U[i] for i in eachindex(X) ]
+            Yd = evaluate_ref(basis, Xd)
+            @test value.(Yd) ≈ P
+            @test all(isapprox(partials(Yd[i, n], 1), dot(dP[i, n], U[i]);
+                               atol = 1e-10, rtol = 1e-9)
+                      for i = 1:length(X), n = 1:Nb)
 
             # Lux-style evaluation; the Ylm state carries the Flm matrix
             ps = LuxCore.initialparameters(rng, basis)

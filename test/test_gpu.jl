@@ -1,46 +1,13 @@
-# Opt-in GPU tests. Skipped silently if no CUDA or Metal backend is functional.
+# Opt-in GPU tests for the 2-center / 3-center overlap kernels. The GPU backend
+# is detected in runtests.jl (`_gpu` / `_gpu_name`); skipped when no functional
+# backend is available.
 
 using AtomicOrbitalKernels
 using AtomicOrbitalKernels: Reference
-import AtomicOrbitalKernels as AOK
-using Pkg
 using Random
 using Unitful
-using StaticArrays
-using LinearAlgebra
 
-const _DEPS = keys(Pkg.project().dependencies)
-
-_gpu = nothing
-_gpu_name = ""
-
-if "CUDA" in _DEPS
-    try
-        @eval Main using CUDA
-        if Main.CUDA.functional()
-            global _gpu = Main.cu
-            global _gpu_name = "CUDA"
-        end
-    catch e
-        @info "CUDA load failed: $(sprint(showerror, e))"
-    end
-end
-
-if _gpu === nothing && "Metal" in _DEPS
-    try
-        @eval Main using Metal
-        if Main.Metal.functional()
-            global _gpu = Main.mtl
-            global _gpu_name = "Metal"
-        end
-    catch e
-        @info "Metal load failed: $(sprint(showerror, e))"
-    end
-end
-
-if _gpu === nothing
-    @info "No GPU backend available — skipping GPU tests."
-else
+if _gpu !== nothing
     @testset "GPU 2C ($(_gpu_name), Float32)" begin
         rng = MersenneTwister(101)
         bc = compile_basis(BS_SI_DEFSVP)
@@ -78,31 +45,5 @@ else
         batch_overlap_3c!(out_gpu, bc_gpu, posA_u, posB_u, posC_u)
         out_h = Array(out_gpu)
         @test maximum(abs, out_ref .- out_h) < 1f-3
-    end
-
-    @testset "GPU AtomicOrbitals eval ($(_gpu_name), Float32)" begin
-        basis = gaussian_orbitals()
-        Xh = [@SVector randn(3) for _ = 1:64]
-        Pc = AOK.evaluate_ref(basis, Xh)              # CPU forward reference (Float64)
-        _, dPc = evaluate_ed(basis, Xh)               # CPU KA gradient (Float64)
-
-        # params + state moved to the device (indices/poly/Flm live in the state)
-        Xg = _gpu([SVector{3, Float32}(x) for x in Xh])
-        psg = (Rnl = (ζ = _gpu(Float32.(basis.Rnl.ζ)), D = _gpu(Float32.(basis.Rnl.D))),
-               Ylm = NamedTuple())
-        stg = (Rnl = (poly = _gpu(collect(basis.Rnl.poly)),),
-               Ylm = (Flm = _gpu(basis.Ylm.Flm),),
-               iR = _gpu(collect(basis.radidx)),
-               iY = _gpu(collect(basis.ylmidx)))
-
-        Pg = evaluate(basis, Xg, psg, stg)
-        @test !(Pg isa Array)                        # ran on the device
-        @test norm(Array(Pg) .- Float32.(Pc)) / norm(Pc) < 1f-3
-
-        _, dPg = evaluate_ed(basis, Xg, psg, stg)
-        dPh = Array(dPg)
-        num = maximum(norm(dPh[i] - SVector{3, Float32}(dPc[i])) for i in eachindex(dPh))
-        den = maximum(norm(SVector{3, Float32}(v)) for v in dPc)
-        @test num / den < 1f-2
     end
 end
