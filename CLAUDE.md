@@ -24,6 +24,8 @@ Use it to set preferences, conventions, and constraints.
 
 - Do not commit changes unless explicitly asked to.
 - Push to remote when appropriate; ask when in doubt.
+- You may open a pull request on your own once you judge the work is ready for
+  review (tests passing, scope complete) — no need to ask first.
 - Before editing a file, read it first.
 - Prefer editing existing files over creating new ones.
 
@@ -69,7 +71,6 @@ Use it to set preferences, conventions, and constraints.
 - Do not silently change behaviour — if a refactor changes observable output,
   flag it before proceeding.
 - Do not delete files without confirmation, even if they appear unused.
-- Do not open pull requests without being asked.
 
 <!-- Add any other hard constraints here, e.g.: -->
 <!-- - Never modify Project.toml or Manifest.toml. -->
