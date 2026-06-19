@@ -29,16 +29,16 @@ using Unitful
 using GaussianBasis: BasisSet
 
 # --- Atomic-orbital evaluation (moved from Polynomials4ML.AtomicOrbitals,
-# v0.6.1). Concrete Rnl·Ylm orbital types built on the P4ML AbstractP4MLBasis
-# interface; P4ML stays a dependency for radial building blocks (MonoBasis) and
-# the evaluation/AD/Lux machinery. SpheriCart supplies the angular Ylm.
-import Polynomials4ML: AbstractP4MLBasis, MonoBasis, BATCH,
-                       _valtype, _evaluate!, _static_params,
+# v0.6.1, and restructured to a generic Rnl·Ylm form). Built on the P4ML
+# AbstractP4MLBasis interface; P4ML stays a dependency for the evaluation/AD/Lux
+# machinery, SpheriCart supplies the angular Ylm. Evaluation is KernelAbstractions
+# based on both CPU and GPU backends.
+import Polynomials4ML: AbstractP4MLBasis, BATCH,
+                       _valtype, _gradtype, _static_params,
                        _init_luxparams, _init_luxstate, pullback_ps,
                        _generate_input
-import ACEbase: evaluate, evaluate_ed, evaluate!, evaluate_ed!, natural_indices
-using SpheriCart: SolidHarmonics, ComplexSolidHarmonics, ComplexSphericalHarmonics
-using GPUArraysCore: AbstractGPUArray
+import ACEbase: evaluate, evaluate_ed, natural_indices
+using SpheriCart: SolidHarmonics
 using LinearAlgebra: norm
 using Random: AbstractRNG
 
@@ -50,17 +50,16 @@ include("adapt.jl")
 include("kernels_2c.jl")
 include("kernels_3c.jl")
 include("reference/Reference.jl")
-include("orbitals/radialdecay.jl")
-include("orbitals/separable_radial.jl")
+include("orbitals/radial.jl")
 include("orbitals/atomicorbitals.jl")
-include("orbitals/gpu_eval.jl")
 
 export compile_basis, adapt_basis,
        batch_overlap!, batch_overlap,
        batch_overlap_3c!, batch_overlap_3c
 
 # atomic-orbital evaluation API
-export AtomicOrbitals, SeparableRadial, RadialDecay, GaussianDecay, SlaterDecay
-export evaluate, evaluate_ed
+export AtomicOrbitals, Rnl, GaussianDecay, SlaterDecay
+export gaussian_orbitals, slater_orbitals, sto_orbitals
+export evaluate, evaluate_ed, evaluate_ref
 
 end # module AtomicOrbitalKernels

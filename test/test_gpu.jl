@@ -81,17 +81,15 @@ else
     end
 
     @testset "GPU AtomicOrbitals eval ($(_gpu_name), Float32)" begin
-        basis = AOK._rand_gaussian_basis()
-        st = (Rnl = (Pn = NamedTuple(), Dn = NamedTuple()), Ylm = NamedTuple())
+        basis = gaussian_orbitals()
+        st = (Rnl = NamedTuple(), Ylm = (Flm = basis.Ylm.Flm,))
 
         Xh = [@SVector randn(3) for _ = 1:64]
-        Pc = evaluate(basis, Xh)                      # CPU Float64 reference (static params)
-        _, dPc = evaluate_ed(basis, Xh)
+        Pc = evaluate_ref(basis, Xh)                  # CPU Float64 reference (forward)
+        _, dPc = evaluate_ed(basis, Xh)               # CPU KA gradient (Float64)
 
         Xg = _gpu([SVector{3, Float32}(x) for x in Xh])
-        psg = (Rnl = (Pn = NamedTuple(),
-                      Dn = (ζ = _gpu(Float32.(Matrix(basis.Rnl.Dn.ζ))),
-                            D = _gpu(Float32.(Matrix(basis.Rnl.Dn.D))))),
+        psg = (Rnl = (ζ = _gpu(Float32.(basis.Rnl.ζ)), D = _gpu(Float32.(basis.Rnl.D))),
                Ylm = NamedTuple())
 
         Pg = evaluate(basis, Xg, psg, st)
