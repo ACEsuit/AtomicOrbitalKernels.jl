@@ -7,7 +7,6 @@ using ForwardDiff: Dual, value, partials
 
 @testset "construct + evaluate" begin
     rng = MersenneTwister(1234)
-    h = 1e-6
     for (lbl, basis) in (("gaussian",   gaussian_orbitals()),
                          ("slater",     slater_orbitals()),
                          ("slater-K4",  slater_orbitals(; K = 4)))
@@ -49,7 +48,8 @@ using ForwardDiff: Dual, value, partials
             Plux, _ = basis(X, ps, st)
             @test Plux ≈ P     # initialised params equal the stored params
 
-            # parameter pullback: directional finite-difference on ζ
+            # parameter pullback on ζ, checked against a ForwardDiff directional
+            # derivative (machine precision; same quantity as the analytic pullback)
             ∂P = randn(length(X), Nb)
             ∂ps = AOK.pullback_ps(∂P, basis, X, ps, st)
             ζ = ps.Rnl.ζ
@@ -57,8 +57,7 @@ using ForwardDiff: Dual, value, partials
             g_analytic = sum(∂ps.Rnl.ζ .* V)
             lossζ(ζi) = sum(∂P .* evaluate(basis, X,
                             (Rnl = (ζ = ζi, D = ps.Rnl.D), Ylm = ps.Ylm), st))
-            g_fd = (lossζ(ζ .+ h .* V) - lossζ(ζ .- h .* V)) / (2h)
-            @test isapprox(g_analytic, g_fd; rtol = 1e-4, atol = 1e-6)
+            @test g_analytic ≈ partials(lossζ(ζ .+ Dual(0.0, 1.0) .* V), 1)
         end
     end
 end
