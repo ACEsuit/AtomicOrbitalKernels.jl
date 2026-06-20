@@ -232,27 +232,31 @@ function _aorb_pullback_x(∂Rnlm, dRnlm)
     return ∂X
 end
 
-# `∂X` is the position gradient (an `SVector{3}` per point); for a `PState` input
-# the X-tangent is reported in that position-gradient form.
-function _aorb_rrule(basis::AtomicOrbitals, Rs, sidx, ps, st)
+# The X-cotangent mirrors the input structure: a positions (`SVector{3}`) input
+# yields an `SVector{3}` gradient per point, a `PState` input yields a `VState`
+# (the position gradient in the `𝐫` slot — the discrete species carries none).
+_xtangent(::AbstractVector{<:SVector{3}}, ∂Rs) = ∂Rs
+_xtangent(::AbstractVector{<:PState}, ∂Rs) = map(g -> VState(𝐫 = g), ∂Rs)
+
+function _aorb_rrule(basis::AtomicOrbitals, X, Rs, sidx, ps, st)
     Rnlm, dRnlm = evaluate_ed(basis, Rs, sidx, ps, st)
     function _pb(_∂)
         ∂Rnlm = unthunk(_∂)
-        ∂X  = _aorb_pullback_x(∂Rnlm, dRnlm)
+        ∂X  = _xtangent(X, _aorb_pullback_x(∂Rnlm, dRnlm))
         ∂ps = pullback_ps(∂Rnlm, basis, Rs, sidx, ps, st)
         return (NoTangent(), NoTangent(), ∂X, ∂ps, NoTangent())
     end
     return Rnlm, _pb
 end
 
-# P4ML's generic `rrule` for `evaluate` is defined on a vector of numbers/SArrays
-# with `ps::Any`; to stay unambiguous we dispatch on the two concrete input kinds:
-# positions (`SVector{3}`, a strict subset → our method wins) and `PState`
-# (disjoint from it). `_positions`/`_sidx` then route both to the same pullback.
+# Dispatch on the input kind is required (not just for disambiguation): the `∂X`
+# type must match the input — `SVector{3}` for positions, `VState` for `PState`.
+# This also keeps us unambiguous with P4ML's generic `rrule` (typed on a vector of
+# numbers/SArrays): positions are a strict subset, `PState`s are disjoint.
 rrule(::typeof(evaluate), basis::AtomicOrbitals,
       X::AbstractVector{<:SVector{3}}, ps, st) =
-        _aorb_rrule(basis, _positions(X), _sidx(basis, X), ps, st)
+        _aorb_rrule(basis, X, _positions(X), _sidx(basis, X), ps, st)
 
 rrule(::typeof(evaluate), basis::AtomicOrbitals,
       X::AbstractVector{<:PState}, ps, st) =
-        _aorb_rrule(basis, _positions(X), _sidx(basis, X), ps, st)
+        _aorb_rrule(basis, X, _positions(X), _sidx(basis, X), ps, st)

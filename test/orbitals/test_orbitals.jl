@@ -4,7 +4,7 @@ import AtomicOrbitalKernels as AOK
 import LuxCore
 using StaticArrays, LinearAlgebra, Random, Test
 using ForwardDiff: Dual, value, partials
-using DecoratedParticles: PState
+using DecoratedParticles: PState, VState
 
 @testset "construct + evaluate" begin
     rng = MersenneTwister(1234)
@@ -134,14 +134,16 @@ end
             @test sum(∂ps.Rnl.ζ .* V) ≈ partials(lossζ(ζ .+ Dual(0.0,1.0).*V), 1)
             @test sum(∂ps.Rnl.D .* W) ≈ partials(lossD(D .+ Dual(0.0,1.0).*W), 1)
 
-            # rrule merges the X-pullback (via evaluate_ed) and the param pullback
+            # rrule merges the X-pullback (via evaluate_ed) and the param pullback;
+            # a PState input yields a VState X-cotangent (position grad in `𝐫`)
             y, pb = AOK.rrule(evaluate, basis, X, ps, st)
             @test y ≈ P
             _, _, ∂X, ∂ps_r, _ = pb(∂P)
+            @test eltype(∂X) <: VState
             @test ∂ps_r.Rnl.ζ ≈ ∂ps.Rnl.ζ
             @test ∂ps_r.Rnl.D ≈ ∂ps.Rnl.D
             @test sum(∂P .* partials.(Yd, 1)) ≈
-                  sum(dot(∂X[j], U[j]) for j in eachindex(X))
+                  sum(dot(∂X[j].𝐫, U[j]) for j in eachindex(X))
 
             # the radial basis also accepts PState directly: exercise `_radii`,
             # the radial-layer PState overloads, and the 3-arg species reference
