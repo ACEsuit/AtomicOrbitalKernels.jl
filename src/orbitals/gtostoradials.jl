@@ -1,7 +1,8 @@
 # Gaussian-type and Slater-type radial bases:
-#   R_k(r) = r^{poly[k]} · Σ_m D[k,m] exp(-ζ[k,m] f(r))
+#   R_k(r; σ) = r^{poly[k]} · Σ_m D[k,m,σ] exp(-ζ[k,m,σ] f(r))
 # with f(r)=r² (Gaussian) or f(r)=r (Slater); K>1 columns give a contraction.
-# `ζ`, `D` are the learnable parameters. Evaluation runs through
+# `ζ`, `D` are the learnable parameters, carrying a species axis σ: atoms of the
+# same species share one `(ζ,D)` slice (weight-sharing). Evaluation runs through
 # KernelAbstractions (the same kernels on CPU and GPU); `evaluate_ref` is a
 # plain forward-only testing oracle.
 
@@ -10,31 +11,59 @@ const NT_NNL = NamedTuple{(:n1, :n2, :l), Tuple{Int, Int, Int}}
 
 abstract type GSRadials <: AbstractP4MLBasis end
 
-struct GaussianTypeRadials{TM <: AbstractMatrix, LEN} <: GSRadials
-    ζ::TM                          # [nRad × K] exponents      (learnable)
-    D::TM                          # [nRad × K] coefficients   (learnable)
+struct GaussianTypeRadials{TM <: AbstractArray, LEN, NZ, TZ} <: GSRadials
+    ζ::TM                          # [nRad × K × NZ] exponents     (learnable)
+    D::TM                          # [nRad × K × NZ] coefficients  (learnable)
     poly::Vector{Int}              # polynomial degree per radial function
     spec::SVector{LEN, NT_NL}      # (n, l) per radial function
     nnspec::SVector{LEN, NT_NNL}   # (n1, n2, l) provenance per radial function
+    zlist::NTuple{NZ, TZ}          # species labels; species axis σ ↔ zlist[σ]
 end
 
-struct SlaterTypeRadials{TM <: AbstractMatrix, LEN} <: GSRadials
+struct SlaterTypeRadials{TM <: AbstractArray, LEN, NZ, TZ} <: GSRadials
     ζ::TM
     D::TM
     poly::Vector{Int}
     spec::SVector{LEN, NT_NL}
     nnspec::SVector{LEN, NT_NNL}
+    zlist::NTuple{NZ, TZ}
 end
 
 for TR in (:GaussianTypeRadials, :SlaterTypeRadials)
-    @eval function $TR(ζ, D, poly, spec, nnspec)
+    @eval function $TR(ζ, D, poly, spec, nnspec, zlist)
         LEN = length(spec)
+        nRad, K, NZ = size(ζ)
         @assert size(ζ) == size(D)
-        @assert size(ζ, 1) == LEN == length(poly) == length(nnspec)
-        return $TR{typeof(ζ), LEN}(ζ, D, collect(Int, poly),
-                    SVector{LEN, NT_NL}(spec), SVector{LEN, NT_NNL}(nnspec))
+        @assert nRad == LEN == length(poly) == length(nnspec)
+        @assert NZ == length(zlist)
+        # store ζ,D as a statically-sized `MArray` (the sizes are recorded in the
+        # basis type — a latent enabler for size-specialised kernels); the params
+        # are converted back to a plain `Array` for `ps` (see `_static_params`).
+        ζm = MArray{Tuple{nRad, K, NZ}}(ζ)
+        Dm = MArray{Tuple{nRad, K, NZ}}(D)
+        zt = Tuple(zlist)
+        return $TR{typeof(ζm), LEN, NZ, eltype(zt)}(ζm, Dm, collect(Int, poly),
+                    SVector{LEN, NT_NL}(spec), SVector{LEN, NT_NNL}(nnspec), zt)
     end
 end
+
+# --- species / DecoratedParticles input helpers ---
+# A `PState` carries position `x.𝐫` (an `SVector{3}`) and species `x.S`; the
+# internal kernel layer instead consumes radii `r` + species indices `sidx`.
+_position(x::PState) = x.𝐫
+_radii(X::AbstractVector{<:PState}) = norm.(_position.(X))
+
+# species label → species-axis index σ ∈ 1:NZ (host side)
+function _z2i(basis::GSRadials, s)
+    σ = findfirst(==(s), basis.zlist)
+    σ === nothing && error("species $(s) not in basis species list $(basis.zlist)")
+    return σ
+end
+_species_indices(basis::GSRadials, X::AbstractVector{<:PState}) =
+        Int[ _z2i(basis, x.S) for x in X ]
+
+# default species indices (species 1 everywhere), on the backend of `r`/`X`
+_default_sidx(r) = fill!(similar(r, Int, length(r)), 1)
 
 # decay form, dispatched by family. The kernel is passed a `Val` tag (isbits, so
 # it works on the GPU); `_decay(basis, r)` is the host-side convenience.
@@ -48,6 +77,7 @@ _decaytag(::SlaterTypeRadials)   = Val(:slater)
 @inline _ddecay(b::GSRadials, r) = _ddecay(_decaytag(b), r)
 
 Base.length(basis::GSRadials) = length(basis.spec)
+nspecies(basis::GSRadials) = length(basis.zlist)
 natural_indices(basis::GSRadials) = basis.spec
 _generate_input(::GSRadials) = rand()
 Base.show(io::IO, b::GSRadials) = print(io, "$(nameof(typeof(b)))($(length(b)) fns)")
@@ -57,8 +87,11 @@ _valtype(::GSRadials, T::Type{<: Number}, ::Union{Nothing, @NamedTuple{}}, st) =
 _valtype(::GSRadials, T::Type{<: Number}, ps, st) =
         promote_type(T, eltype(ps.ζ), eltype(ps.D))
 
-_static_params(b::GSRadials) = (ζ = b.ζ, D = b.D)
-_init_luxparams(b::GSRadials) = (ζ = Matrix(b.ζ), D = Matrix(b.D))
+# params are extracted as plain `Array`s: an `MArray` can't move to the GPU and
+# the kernels want dynamic-size, AD-friendly arrays — the static MArray sizes
+# live only in the basis type.
+_static_params(b::GSRadials) = (ζ = Array(b.ζ), D = Array(b.D))
+_init_luxparams(b::GSRadials) = (ζ = Array(b.ζ), D = Array(b.D))
 # the polynomial degrees are non-trainable state (so they move to the device
 # with the rest of the state rather than being copied on every call).
 _static_state(b::GSRadials) = (poly = b.poly,)
@@ -66,22 +99,26 @@ _init_luxstate(b::GSRadials) = _static_state(b)
 
 # ---- KA kernels (default path; CPU and GPU backends) ----
 
-@kernel function _rnl_val_ka!(R, @Const(r), @Const(ζ), @Const(D), @Const(poly), tag)
+@kernel function _rnl_val_ka!(R, @Const(r), @Const(sidx), @Const(ζ), @Const(D),
+                              @Const(poly), tag)
     i, k = @index(Global, NTuple)
     K = size(ζ, 2)
+    σ = sidx[i]
     ri = r[i]
     fx = _decay(tag, ri)
     s = zero(eltype(R))
     # TODO: can this be unrolled?
     @inbounds for m = 1:K
-        s += D[k, m] * exp(-ζ[k, m] * fx)
+        s += D[k, m, σ] * exp(-ζ[k, m, σ] * fx)
     end
     @inbounds R[i, k] = ri^poly[k] * s
 end
 
-@kernel function _rnl_ed_ka!(R, dR, @Const(r), @Const(ζ), @Const(D), @Const(poly), tag)
+@kernel function _rnl_ed_ka!(R, dR, @Const(r), @Const(sidx), @Const(ζ), @Const(D),
+                             @Const(poly), tag)
     i, k = @index(Global, NTuple)
     K = size(ζ, 2)
+    σ = sidx[i]
     ri = r[i]
     fx = _decay(tag, ri)
     dfx = _ddecay(tag, ri)
@@ -89,9 +126,9 @@ end
     ds = zero(eltype(R))
     # TODO: can this be unrolled?
     @inbounds for m = 1:K
-        a = D[k, m] * exp(-ζ[k, m] * fx)
+        a = D[k, m, σ] * exp(-ζ[k, m, σ] * fx)
         s += a
-        ds += -ζ[k, m] * dfx * a
+        ds += -ζ[k, m, σ] * dfx * a
     end
     p = poly[k]
     rp  = ri^p
@@ -100,89 +137,136 @@ end
     @inbounds dR[i, k] = drp * s + rp * ds
 end
 
-function evaluate(basis::GSRadials, r::BATCH, ps, st)
+# Two input layers: an internal kernel-facing layer taking radii `r` + species
+# indices `sidx` (both already on the target backend), and a DecoratedParticles
+# convenience layer taking `X[i]::PState` that extracts `r = ‖𝐫‖`, `sidx` on the
+# host. A call without `sidx` defaults to species 1 (single-species use).
+
+function evaluate(basis::GSRadials, r::BATCH, sidx::AbstractVector{<:Integer}, ps, st)
     R = _alloc_val(basis, r, ps, st)
     backend = KA.get_backend(R)
-    _rnl_val_ka!(backend)(R, r, ps.ζ, ps.D, st.poly, _decaytag(basis); ndrange = size(R))
+    _rnl_val_ka!(backend)(R, r, sidx, ps.ζ, ps.D, st.poly, _decaytag(basis);
+                          ndrange = size(R))
     KA.synchronize(backend)
     return R
 end
 
+evaluate(basis::GSRadials, r::BATCH, ps, st) =
+        evaluate(basis, r, _default_sidx(r), ps, st)
+
+evaluate(basis::GSRadials, X::AbstractVector{<:PState}, ps, st) =
+        evaluate(basis, _radii(X), _species_indices(basis, X), ps, st)
+
 evaluate(basis::GSRadials, r::BATCH) =
         evaluate(basis, r, _static_params(basis), _static_state(basis))
 
-function evaluate_ed(basis::GSRadials, r::BATCH, ps, st)
+evaluate(basis::GSRadials, X::AbstractVector{<:PState}) =
+        evaluate(basis, X, _static_params(basis), _static_state(basis))
+
+function evaluate_ed(basis::GSRadials, r::BATCH, sidx::AbstractVector{<:Integer}, ps, st)
     R  = _alloc_val(basis, r, ps, st)
     dR = _alloc_grad(basis, r, ps, st)
     backend = KA.get_backend(R)
-    _rnl_ed_ka!(backend)(R, dR, r, ps.ζ, ps.D, st.poly, _decaytag(basis); ndrange = size(R))
+    _rnl_ed_ka!(backend)(R, dR, r, sidx, ps.ζ, ps.D, st.poly, _decaytag(basis);
+                         ndrange = size(R))
     KA.synchronize(backend)
     return R, dR
 end
 
+evaluate_ed(basis::GSRadials, r::BATCH, ps, st) =
+        evaluate_ed(basis, r, _default_sidx(r), ps, st)
+
+evaluate_ed(basis::GSRadials, X::AbstractVector{<:PState}, ps, st) =
+        evaluate_ed(basis, _radii(X), _species_indices(basis, X), ps, st)
+
 evaluate_ed(basis::GSRadials, r::BATCH) =
         evaluate_ed(basis, r, _static_params(basis), _static_state(basis))
 
+evaluate_ed(basis::GSRadials, X::AbstractVector{<:PState}) =
+        evaluate_ed(basis, X, _static_params(basis), _static_state(basis))
+
 # ---- plain forward-only reference (testing oracle) ----
 
-function evaluate_ref(basis::GSRadials, r::AbstractVector,
-                      ps = _static_params(basis), st = _static_state(basis))
+function evaluate_ref(basis::GSRadials, r::AbstractVector, sidx::AbstractVector{<:Integer},
+                      ps, st)
     ζ, D = ps.ζ, ps.D
     poly = st.poly
-    nRad, K = size(ζ)
+    nRad, K, NZ = size(ζ)
     nX = length(r)
     R = zeros(promote_type(eltype(r), eltype(ζ), eltype(D)), nX, nRad)
     for k = 1:nRad, i = 1:nX
+        σ = sidx[i]
         fx = _decay(basis, r[i])
         s = zero(eltype(R))
         for m = 1:K
-            s += D[k, m] * exp(-ζ[k, m] * fx)
+            s += D[k, m, σ] * exp(-ζ[k, m, σ] * fx)
         end
         R[i, k] = r[i]^poly[k] * s
     end
     return R
 end
 
+# species reference with default params (more specific than the optional-arg
+# method below, so `evaluate_ref(basis, r, sidx)` reaches the species path)
+evaluate_ref(basis::GSRadials, r::AbstractVector, sidx::AbstractVector{<:Integer}) =
+        evaluate_ref(basis, r, sidx, _static_params(basis), _static_state(basis))
+
+evaluate_ref(basis::GSRadials, r::AbstractVector,
+             ps = _static_params(basis), st = _static_state(basis)) =
+        evaluate_ref(basis, r, ones(Int, length(r)), ps, st)
+
 # ---- parameter pullback ----
 
-# parameter pullback. ∂ζ[k,m] / ∂D[k,m] are reductions over the nX points; a
-# per-point atomic scatter has nX-way contention per (k,m) slot, which dominates.
-# Instead use a *segmented* reduction: ndrange (ng, nRad, K), where each (gi,k,m)
-# work-item reduces a strided subset of the points (gi, gi+ng, …) in registers
-# and contributes a single atomic per slot — so contention is ng-way, not nX-way.
-# ng ≈ 128 (capped at nX) measured ~6–30× faster than per-point atomics on an A100.
+# parameter pullback. ∂ζ[k,m,σ] / ∂D[k,m,σ] are reductions over the points of
+# species σ; a per-point atomic scatter has high contention per slot. We keep the
+# *segmented* reduction (low contention) and add the species axis: ndrange is
+# (NZ, ng, nRad, K), where each (σ,gi,k,m) work-item strides over the points,
+# accumulates only those with sidx==σ in registers, and contributes a single
+# atomic per slot — contention is ng-way per species, not nX-way. ng ≈ 128
+# (capped at nX). The single-species segmented kernel measured ~6–30× faster than
+# per-point atomics on an A100; cost of the species axis is the NZ factor + a
+# branch (benchmarked against a plain (i,k,m) atomic scatter — see benchmark/).
 const _PB_NGROUPS = 128
 
-@kernel function _gtostoradials_pb_ka!(∂ζ, ∂D, @Const(∂R), @Const(r),
+@kernel function _gtostoradials_pb_ka!(∂ζ, ∂D, @Const(∂R), @Const(r), @Const(sidx),
                               @Const(ζ), @Const(D), @Const(poly), tag, ng)
-    gi, k, m = @index(Global, NTuple)
+    σ, gi, k, m = @index(Global, NTuple)
     nX = length(r)
     @inbounds begin
-        ζkm = ζ[k, m]; Dkm = D[k, m]
+        ζkm = ζ[k, m, σ]; Dkm = D[k, m, σ]
         pζ = zero(eltype(∂ζ)); pD = zero(eltype(∂D))
         i = gi
         while i <= nX
-            ri = r[i]; fx = _decay(tag, ri)
-            a  = exp(-ζkm * fx)
-            gg = ∂R[i, k] * ri^poly[k]
-            pD += gg * a
-            pζ += gg * Dkm * a * (-fx)
+            if sidx[i] == σ
+                ri = r[i]; fx = _decay(tag, ri)
+                a  = exp(-ζkm * fx)
+                gg = ∂R[i, k] * ri^poly[k]
+                pD += gg * a
+                pζ += gg * Dkm * a * (-fx)
+            end
             i += ng
         end
-        KA.@atomic ∂D[k, m] += pD
-        KA.@atomic ∂ζ[k, m] += pζ
+        KA.@atomic ∂D[k, m, σ] += pD
+        KA.@atomic ∂ζ[k, m, σ] += pζ
     end
 end
 
-function pullback_ps(∂R, basis::GSRadials, r::BATCH, ps, st)
+function pullback_ps(∂R, basis::GSRadials, r::BATCH,
+                     sidx::AbstractVector{<:Integer}, ps, st)
     T = promote_type(eltype(∂R), eltype(ps.ζ), eltype(ps.D))
     ∂ζ = fill!(similar(ps.ζ, T), zero(T))
     ∂D = fill!(similar(ps.D, T), zero(T))
     backend = KA.get_backend(∂ζ)
-    nRad, K = size(ps.ζ)
+    nRad, K, NZ = size(ps.ζ)
     ng = min(_PB_NGROUPS, length(r))
-    _gtostoradials_pb_ka!(backend)(∂ζ, ∂D, ∂R, r, ps.ζ, ps.D, st.poly,
-                            _decaytag(basis), ng; ndrange = (ng, nRad, K))
+    _gtostoradials_pb_ka!(backend)(∂ζ, ∂D, ∂R, r, sidx, ps.ζ, ps.D, st.poly,
+                            _decaytag(basis), ng; ndrange = (NZ, ng, nRad, K))
     KA.synchronize(backend)
     return (ζ = ∂ζ, D = ∂D)
 end
+
+pullback_ps(∂R, basis::GSRadials, r::BATCH, ps, st) =
+        pullback_ps(∂R, basis, r, _default_sidx(r), ps, st)
+
+pullback_ps(∂R, basis::GSRadials, X::AbstractVector{<:PState}, ps, st) =
+        pullback_ps(∂R, basis, _radii(X), _species_indices(basis, X), ps, st)

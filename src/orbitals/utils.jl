@@ -4,8 +4,12 @@
 
 # build an example GSRadials of the requested type: for each l in 0:N1-1, the
 # N1*N2 pairs (n1, n2) give the polynomial degree (n1-1) and a deterministic
-# exponent/coefficient set; `K` columns give a contraction.
-function _example_radial(::Type{TR}, N1, N2; K::Int = 1, T::Type = Float64) where {TR <: GSRadials}
+# exponent/coefficient set; `K` columns give a contraction. With `length(zlist)`
+# species the (ζ,D) gain a species axis: σ=1 reproduces the single-species basis
+# exactly, further species are mild deterministic perturbations so their slices
+# are distinct.
+function _example_radial(::Type{TR}, N1, N2; K::Int = 1, T::Type = Float64,
+                         zlist = (1,)) where {TR <: GSRadials}
     spec   = NT_NL[]
     nnspec = NT_NNL[]
     poly   = Int[]
@@ -22,26 +26,40 @@ function _example_radial(::Type{TR}, N1, N2; K::Int = 1, T::Type = Float64) wher
             push!(Drows,  TR === GaussianTypeRadials ? ones(T, K) : T[ 1 / j for j = 1:K ])
         end
     end
-    ζ = permutedims(reduce(hcat, ζrows))   # [nRad × K]
-    D = permutedims(reduce(hcat, Drows))
-    return TR(ζ, D, poly, spec, nnspec)
+    ζ2 = permutedims(reduce(hcat, ζrows))   # [nRad × K]
+    D2 = permutedims(reduce(hcat, Drows))
+    nRad = size(ζ2, 1)
+    NZ = length(zlist)
+    ζ = zeros(T, nRad, K, NZ)               # [nRad × K × NZ]
+    D = zeros(T, nRad, K, NZ)
+    for σ = 1:NZ
+        ζ[:, :, σ] .= ζ2 .+ T(0.1) * (σ - 1)
+        D[:, :, σ] .= D2 .* (1 + T(0.05) * (σ - 1))
+    end
+    return TR(ζ, D, poly, spec, nnspec, zlist)
 end
 
 """
-    gaussian_orbitals(N1=4, N2=3; K=1, T=Float64)
+    gaussian_orbitals(N1=4, N2=3; K=1, T=Float64, nspecies=1, zlist=1:nspecies)
 
-A deterministic example Gaussian-type atomic-orbital basis.
+A deterministic example Gaussian-type atomic-orbital basis. With `nspecies>1` the
+radial `(ζ,D)` are species-indexed (labels `zlist`); species 1 reproduces the
+single-species basis.
 """
-gaussian_orbitals(N1 = 4, N2 = 3; K::Int = 1, T = Float64) =
-        AtomicOrbitals(_example_radial(GaussianTypeRadials, N1, N2; K = K, T = T),
+gaussian_orbitals(N1 = 4, N2 = 3; K::Int = 1, T = Float64,
+                  nspecies::Int = 1, zlist = ntuple(i -> i, nspecies)) =
+        AtomicOrbitals(_example_radial(GaussianTypeRadials, N1, N2;
+                                       K = K, T = T, zlist = zlist),
                        _default_ylm(N1 - 1))
 
 """
-    slater_orbitals(N1=4, N2=3; K=1, T=Float64)
+    slater_orbitals(N1=4, N2=3; K=1, T=Float64, nspecies=1, zlist=1:nspecies)
 
 A deterministic example Slater-type atomic-orbital basis (`K>1` gives a
-contracted radial).
+contracted radial). With `nspecies>1` the radial `(ζ,D)` are species-indexed.
 """
-slater_orbitals(N1 = 4, N2 = 3; K::Int = 1, T = Float64) =
-        AtomicOrbitals(_example_radial(SlaterTypeRadials, N1, N2; K = K, T = T),
+slater_orbitals(N1 = 4, N2 = 3; K::Int = 1, T = Float64,
+                nspecies::Int = 1, zlist = ntuple(i -> i, nspecies)) =
+        AtomicOrbitals(_example_radial(SlaterTypeRadials, N1, N2;
+                                       K = K, T = T, zlist = zlist),
                        _default_ylm(N1 - 1))

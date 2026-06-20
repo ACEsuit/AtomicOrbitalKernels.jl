@@ -44,6 +44,9 @@ import ChainRulesCore: rrule, NoTangent, unthunk
 using SpheriCart: SolidHarmonics
 using LinearAlgebra: norm
 using Random: AbstractRNG
+# DecoratedParticles supplies the `PState` input type (position `x.𝐫` + species
+# `x.S`); a core dependency for now (an extension is a later option).
+using DecoratedParticles: PState
 
 const ang2bohr = 1.8897261246257702
 

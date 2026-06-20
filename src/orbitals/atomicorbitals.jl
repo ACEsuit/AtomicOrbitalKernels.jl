@@ -108,12 +108,18 @@ end
     end
 end
 
-function evaluate(basis::AtomicOrbitals, X::BATCH, ps, st)
-    Rnlm = _alloc_val(basis, X, ps, st)
+# Public input layers mirror the radial: an internal layer over positions `Rs`
+# (`SVector{3}`) + species indices `sidx`, and a DecoratedParticles layer over
+# `X[i]::PState`. The species attribute rides inside the input — the orbital
+# `spec`/index maps and the product kernels stay species-free. A positions-only
+# call defaults to species 1 (single-species use).
+
+function evaluate(basis::AtomicOrbitals, Rs::BATCH, sidx::AbstractVector{<:Integer}, ps, st)
+    Rnlm = _alloc_val(basis, Rs, ps, st)
     backend = KA.get_backend(Rnlm)
-    r = norm.(X)
-    Rnl = evaluate(basis.Rnl, r, ps.Rnl, st.Rnl)
-    Ylm = evaluate(basis.Ylm, X, ps.Ylm, st.Ylm)
+    r = norm.(Rs)
+    Rnl = evaluate(basis.Rnl, r, sidx, ps.Rnl, st.Rnl)
+    Ylm = evaluate(basis.Ylm, Rs, ps.Ylm, st.Ylm)
     # `Rnl` and `Ylm` come from independent kernel launches; make sure both are
     # finished before the product kernel consumes them.
     KA.synchronize(backend)
@@ -122,26 +128,45 @@ function evaluate(basis::AtomicOrbitals, X::BATCH, ps, st)
     return Rnlm
 end
 
+evaluate(basis::AtomicOrbitals, X::BATCH, ps, st) =
+        evaluate(basis, X, _default_sidx(X), ps, st)
+
+evaluate(basis::AtomicOrbitals, X::AbstractVector{<:PState}, ps, st) =
+        evaluate(basis, _position.(X), _species_indices(basis.Rnl, X), ps, st)
+
 evaluate(basis::AtomicOrbitals, X::BATCH) =
         evaluate(basis, X, _static_params(basis), _static_state(basis))
 
-function evaluate_ed(basis::AtomicOrbitals, X::BATCH, ps, st)
-    Rnlm  = _alloc_val(basis, X, ps, st)
-    dRnlm = _alloc_grad(basis, X, ps, st)
+evaluate(basis::AtomicOrbitals, X::AbstractVector{<:PState}) =
+        evaluate(basis, X, _static_params(basis), _static_state(basis))
+
+function evaluate_ed(basis::AtomicOrbitals, Rs::BATCH,
+                     sidx::AbstractVector{<:Integer}, ps, st)
+    Rnlm  = _alloc_val(basis, Rs, ps, st)
+    dRnlm = _alloc_grad(basis, Rs, ps, st)
     backend = KA.get_backend(Rnlm)
-    r = norm.(X)
-    Rnl, dRnl = evaluate_ed(basis.Rnl, r, ps.Rnl, st.Rnl)
-    Ylm, dYlm = evaluate_ed(basis.Ylm, X, ps.Ylm, st.Ylm)
+    r = norm.(Rs)
+    Rnl, dRnl = evaluate_ed(basis.Rnl, r, sidx, ps.Rnl, st.Rnl)
+    Ylm, dYlm = evaluate_ed(basis.Ylm, Rs, ps.Ylm, st.Ylm)
     # `Rnl` and `Ylm` come from independent kernel launches; make sure both are
     # finished before the product kernel consumes them.
     KA.synchronize(backend)
-    _aorb_ed_ka!(backend)(Rnlm, dRnlm, Rnl, dRnl, Ylm, dYlm, X, r, st.iR, st.iY;
+    _aorb_ed_ka!(backend)(Rnlm, dRnlm, Rnl, dRnl, Ylm, dYlm, Rs, r, st.iR, st.iY;
                           ndrange = size(Rnlm))
     KA.synchronize(backend)
     return Rnlm, dRnlm
 end
 
+evaluate_ed(basis::AtomicOrbitals, X::BATCH, ps, st) =
+        evaluate_ed(basis, X, _default_sidx(X), ps, st)
+
+evaluate_ed(basis::AtomicOrbitals, X::AbstractVector{<:PState}, ps, st) =
+        evaluate_ed(basis, _position.(X), _species_indices(basis.Rnl, X), ps, st)
+
 evaluate_ed(basis::AtomicOrbitals, X::BATCH) =
+        evaluate_ed(basis, X, _static_params(basis), _static_state(basis))
+
+evaluate_ed(basis::AtomicOrbitals, X::AbstractVector{<:PState}) =
         evaluate_ed(basis, X, _static_params(basis), _static_state(basis))
 
 # ---- plain forward-only reference (testing oracle) ----
@@ -149,8 +174,17 @@ evaluate_ed(basis::AtomicOrbitals, X::BATCH) =
 function evaluate_ref(basis::AtomicOrbitals, X::AbstractVector{<: SVector{3}},
                       ps = _static_params(basis), st = _static_state(basis))
     r = norm.(X)
-    Rnl = evaluate_ref(basis.Rnl, r, ps.Rnl, st.Rnl)
+    Rnl = evaluate_ref(basis.Rnl, r, ones(Int, length(X)), ps.Rnl, st.Rnl)
     Ylm = evaluate(basis.Ylm, X, ps.Ylm, st.Ylm)
+    return Rnl[:, basis.radidx] .* Ylm[:, basis.ylmidx]
+end
+
+function evaluate_ref(basis::AtomicOrbitals, X::AbstractVector{<:PState},
+                      ps = _static_params(basis), st = _static_state(basis))
+    Rs = _position.(X)
+    Rnl = evaluate_ref(basis.Rnl, norm.(Rs), _species_indices(basis.Rnl, X),
+                       ps.Rnl, st.Rnl)
+    Ylm = evaluate(basis.Ylm, Rs, ps.Ylm, st.Ylm)
     return Rnl[:, basis.radidx] .* Ylm[:, basis.ylmidx]
 end
 
@@ -165,18 +199,25 @@ end
     @inbounds KA.@atomic ∂Rnl[j, iR[i]] += ∂Rnlm[j, i] * Ylm[j, iY[i]]
 end
 
-function pullback_ps(∂Rnlm, basis::AtomicOrbitals, X::BATCH, ps::NamedTuple, st)
-    T = promote_type(eltype(∂Rnlm), eltype(eltype(X)))
-    r = norm.(X)
-    Ylm = evaluate(basis.Ylm, X, ps.Ylm, st.Ylm)
-    ∂Rnl = fill!(similar(Ylm, T, length(X), length(basis.Rnl)), zero(T))
+function pullback_ps(∂Rnlm, basis::AtomicOrbitals, Rs::BATCH,
+                     sidx::AbstractVector{<:Integer}, ps::NamedTuple, st)
+    T = promote_type(eltype(∂Rnlm), eltype(eltype(Rs)))
+    r = norm.(Rs)
+    Ylm = evaluate(basis.Ylm, Rs, ps.Ylm, st.Ylm)
+    ∂Rnl = fill!(similar(Ylm, T, length(Rs), length(basis.Rnl)), zero(T))
     backend = KA.get_backend(∂Rnl)
     KA.synchronize(backend)
     _aorb_pbrad_ka!(backend)(∂Rnl, ∂Rnlm, Ylm, st.iR, st.iY; ndrange = size(∂Rnlm))
     KA.synchronize(backend)
-    return (Rnl = pullback_ps(∂Rnl, basis.Rnl, r, ps.Rnl, st.Rnl),
+    return (Rnl = pullback_ps(∂Rnl, basis.Rnl, r, sidx, ps.Rnl, st.Rnl),
             Ylm = NamedTuple())
 end
+
+pullback_ps(∂Rnlm, basis::AtomicOrbitals, X::BATCH, ps::NamedTuple, st) =
+        pullback_ps(∂Rnlm, basis, X, _default_sidx(X), ps, st)
+
+pullback_ps(∂Rnlm, basis::AtomicOrbitals, X::AbstractVector{<:PState}, ps::NamedTuple, st) =
+        pullback_ps(∂Rnlm, basis, _position.(X), _species_indices(basis.Rnl, X), ps, st)
 
 # ---- ChainRules: differentiable w.r.t. positions X and params ps ----
 #
@@ -207,13 +248,21 @@ function _aorb_pullback_x(∂Rnlm, dRnlm)
     return ∂X
 end
 
-function rrule(::typeof(evaluate), basis::AtomicOrbitals, X::BATCH, ps, st)
-    Rnlm, dRnlm = evaluate_ed(basis, X, ps, st)
+# `∂X` is the position gradient (an `SVector{3}` per point); for a `PState` input
+# the X-tangent is reported in that position-gradient form.
+function _aorb_rrule(basis::AtomicOrbitals, Rs, sidx, ps, st)
+    Rnlm, dRnlm = evaluate_ed(basis, Rs, sidx, ps, st)
     function _pb(_∂)
         ∂Rnlm = unthunk(_∂)
         ∂X  = _aorb_pullback_x(∂Rnlm, dRnlm)
-        ∂ps = pullback_ps(∂Rnlm, basis, X, ps, st)
+        ∂ps = pullback_ps(∂Rnlm, basis, Rs, sidx, ps, st)
         return (NoTangent(), NoTangent(), ∂X, ∂ps, NoTangent())
     end
     return Rnlm, _pb
 end
+
+rrule(::typeof(evaluate), basis::AtomicOrbitals, X::BATCH, ps, st) =
+        _aorb_rrule(basis, X, _default_sidx(X), ps, st)
+
+rrule(::typeof(evaluate), basis::AtomicOrbitals, X::AbstractVector{<:PState}, ps, st) =
+        _aorb_rrule(basis, _position.(X), _species_indices(basis.Rnl, X), ps, st)
