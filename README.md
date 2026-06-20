@@ -2,15 +2,61 @@
 
 [![Build Status](https://github.com/ACEsuit/AtomicOrbitalKernels.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/ACEsuit/AtomicOrbitalKernels.jl/actions/workflows/CI.yml?query=branch%3Amain)
 
-This Julia package provides somewhat experimental (but very usable)
-batched, backend-agnostic GPU/CPU kernels for Cartesian-Gaussian basis-set
-integrals on top of [GaussianBasis.jl](https://github.com/FermiQC/GaussianBasis.jl),
-built with [KernelAbstractions.jl](https://github.com/JuliaGPU/KernelAbstractions.jl)
-so the same code runs on CPU, CUDA, Metal, and (untested) ROCm. The package 
-is written with specific research projects in mind, hence the currently 
-limited scope.
+Fast, backend-agnostic (CPU / CUDA / Metal / ROCm) kernels for **atomic
+orbitals**, written with
+[KernelAbstractions.jl](https://github.com/JuliaGPU/KernelAbstractions.jl) so a
+single kernel set runs on every backend. The package has two complementary
+halves:
 
-## Scope
+1. **Atomic-orbital evaluation** — batched evaluation of orbital bases
+   `ϕ_{nlm}(𝐫) = R_{nl}(r) · Y_{lm}(𝐫̂)` (Gaussian-type, Slater-type, or any
+   radial × real spherical harmonics) with **learnable** radial parameters
+   `(ζ, D)`. Values and spatial gradients (`evaluate` / `evaluate_ed`),
+   `Lux`-compatible parameters/state, and full `ChainRulesCore`
+   differentiability in **both positions and parameters**.
+2. **Overlap integrals** — batched 2-center and 3-center Cartesian-Gaussian
+   overlap integrals on top of
+   [GaussianBasis.jl](https://github.com/FermiQC/GaussianBasis.jl).
+
+Built on [Polynomials4ML.jl](https://github.com/ACEsuit/Polynomials4ML.jl),
+[SpheriCart.jl](https://github.com/ACEsuit/SpheriCart.jl), and
+[ACEbase.jl](https://github.com/ACEsuit/ACEbase.jl). This is early, somewhat
+experimental software written with specific research projects in mind, but it is
+already usable on CPU and GPU.
+
+## Atomic-orbital evaluation
+
+```julia
+using AtomicOrbitalKernels, StaticArrays
+
+basis = gaussian_orbitals()              # example Gaussian-type orbital basis
+X = [ @SVector randn(3) for _ = 1:1000 ]
+
+P     = evaluate(basis, X)               # values         (nX × nOrb)
+P, dP = evaluate_ed(basis, X)            # values + ∇ϕ    (dP[i,k]::SVector{3})
+```
+
+`slater_orbitals(; K)` builds a Slater-type (optionally `K`-contracted) basis.
+The radial parameters `(ζ, D)` are learnable and the basis is `Lux`-compatible:
+
+```julia
+using LuxCore, Random
+rng = Random.default_rng()
+ps = LuxCore.initialparameters(rng, basis)
+st = LuxCore.initialstates(rng, basis)
+P, _ = basis(X, ps, st)
+```
+
+Evaluation runs through KernelAbstractions, so the same calls execute on the GPU
+when `X` and the parameters/state are device arrays. Gradients with respect to
+positions **and** parameters are available through `ChainRulesCore` (e.g. via
+Zygote); the parameter pullback (`pullback_ps`) and the `rrule` for `evaluate`
+run on the GPU too.
+
+## Overlap integrals
+
+Batched, backend-agnostic Cartesian-Gaussian overlap integrals on top of
+GaussianBasis.jl.
 
 | Category                          | Status in `AtomicOrbitalKernels.jl`                                  |
 | --------------------------------- | -------------------------------------------------------------------- |
@@ -22,15 +68,13 @@ limited scope.
 | ERIs (2e2c, 2e3c, 2e4c)           | Not implemented                                                      |
 | Gradients                         | Not implemented                                                      |
 
-Integrals beyond 2C and 3C overlap will be added as needed. The package
-provides **no fallbacks** to GaussianBasis.jl for unimplemented operations —
-if you need them on CPU, call GaussianBasis.jl directly.
+Integrals beyond 2C and 3C overlap will be added as needed. The package provides
+**no fallbacks** to GaussianBasis.jl for unimplemented operations — if you need
+them on CPU, call GaussianBasis.jl directly.
 
 The 3-center overlap `V_{μνλ}(b) = ∫ φ_μ(r - A_b) φ_ν(r - B_b) φ_λ(r - C_b) dr`
 has no equivalent in GaussianBasis.jl. Its `ERI_2e3c` is a different,
 2-electron, 3-center integral.
-
-## Quickstart
 
 ```julia
 using GaussianBasis, Molecules, StaticArrays, Unitful
@@ -64,7 +108,7 @@ out3 = zeros(Float64, N, N, N, 128)
 batch_overlap_3c!(out3, basis, posA[:, 1:128], posB[:, 1:128], posC)
 ```
 
-## Conventions
+### Conventions
 
 - **Positions** must be passed as `AbstractMatrix{<:Unitful.Length}` (size
   `(3, B)`). Any length unit is accepted — `u"angstrom"`, `u"bohr"`, `u"nm"`,
@@ -80,7 +124,7 @@ batch_overlap_3c!(out3, basis, posA[:, 1:128], posB[:, 1:128], posC)
   aliasing — preserved for bit-for-bit compatibility with the bundled scalar
   reference (`AtomicOrbitalKernels.Reference`).
 
-## Reference implementation
+### Reference implementation
 
 The pedagogical scalar implementation lives in the non-exported submodule
 `AtomicOrbitalKernels.Reference`. It is what the test suite checks against and
@@ -96,33 +140,27 @@ The reference exposes the underlying McMurchie–Davidson E-coefficient
 recursion (`generate_E_matrix!`, `generate_E3_matrix!`) and per-shell-pair /
 shell-triple writes (`generate_S_pair!`, `generate_V_triple!`).
 
-## Scaling
+## Benchmarks & scaling
 
-A scaling sweep driver lives at [scaling/scaling.jl](scaling/scaling.jl) with
-its own `scaling/Project.toml`. It runs the 2C and 3C kernels at batch sizes
-`B = 2^7, 2^8, …, 2^14` for a single backend per invocation and prints a
-markdown table with timings (`BenchmarkTools.@belapsed`). 
+A `PkgBenchmark` suite for the orbital evaluation and pullback kernels lives in
+[benchmark/](benchmark) (run with `using PkgBenchmark; benchmarkpkg(...)`). A
+separate scaling-sweep driver for the overlap kernels lives at
+[scaling/scaling.jl](scaling/scaling.jl) with its own `scaling/Project.toml`; it
+runs the 2C and 3C kernels at batch sizes `B = 2^7 … 2^14` for a single backend
+per invocation and prints a markdown timing table.
 
 ```
-# CPU (Float64) — single-threaded baseline
-julia -t 64 --project=scaling scaling/scaling.jl
-
-# CPU using all physical cores (recommended for a fair CPU number)
+# CPU using all physical cores
 julia --project=scaling -t auto scaling/scaling.jl
 
-# Explicit CPU is also accepted
-julia --project=scaling -t auto scaling/scaling.jl CPU
-
-# GPU (Float32) — pass the backend package name. It must be installed
-# somewhere on the active load path. The script `@eval using $BACKEND`s it
-# and then uses `MLDataDevices.gpu_device()` to obtain the device.
-julia --project=scaling scaling/scaling.jl Metal
+# GPU (Float32) — pass the backend package name (must be installed)
 julia --project=scaling scaling/scaling.jl CUDA
+julia --project=scaling scaling/scaling.jl Metal
 ```
 
-The KA `CPU` backend parallelises across Julia threads, so the CPU column
-depends on `--threads` / `-t` / `JULIA_NUM_THREADS`. Thread count is
-irrelevant once a GPU backend is selected — GPU dispatch ignores `-t`.
+The KA `CPU` backend parallelises across Julia threads, so the CPU numbers
+depend on `--threads` / `-t` / `JULIA_NUM_THREADS`; thread count is irrelevant
+once a GPU backend is selected.
 
 ## Testing
 
@@ -130,5 +168,6 @@ irrelevant once a GPU backend is selected — GPU dispatch ignores `-t`.
 julia --project -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 ```
 
-GPU tests (`test/test_gpu.jl`) are opt-in and skipped silently when neither
-CUDA nor Metal is functional.
+GPU tests are opt-in: the backend is auto-detected (set `TEST_BACKEND` to force
+`CPU`/`CUDA`/`Metal`/…), and on a machine with no functional GPU the device
+tests fall back to the CPU backend.
