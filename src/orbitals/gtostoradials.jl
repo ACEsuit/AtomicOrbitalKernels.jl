@@ -53,7 +53,7 @@ end
 # positions `Rs`, plus species indices `sidx`); the public layers take a vector
 # `X` of either coordinates (→ species 1) or `PState`s (→ species from `x.S`).
 _position(x::PState) = x.𝐫
-_radii(X::AbstractVector{<:PState}) = norm.(_position.(X))
+_radii(X::AbstractVector{<:PState}) = (norm ∘ _position).(X)
 _radii(r::AbstractVector{<:Real}) = r
 
 # species label → species-axis index σ ∈ 1:NZ (host side)
