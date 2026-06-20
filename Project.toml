@@ -1,7 +1,7 @@
 name = "AtomicOrbitalKernels"
 uuid = "aa7a2209-7a51-48b2-9f84-4fb7a35f78a5"
 authors = ["Christoph Ortner <christophortner0@gmail.com> and contributors"]
-version = "0.1.0-DEV"
+version = "0.0.1"
 
 [deps]
 ACEbase            = "14bae519-eb20-449c-a949-9c58ed33163e"
