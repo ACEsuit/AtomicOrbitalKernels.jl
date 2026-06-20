@@ -66,6 +66,38 @@ Use it to set preferences, conventions, and constraints.
 
 ---
 
+## Releasing
+
+Register a tagged version with JuliaRegistrator: comment `@JuliaRegistrator
+register` on the release commit, and include **release notes** in the same
+comment under a `Release notes:` line (markdown). The General registry adds them
+to the registry PR and TagBot puts them on the GitHub release. Re-invoking
+JuliaRegistrator updates the open registry PR, so notes can be added/edited after
+the first trigger.
+
+```
+@JuliaRegistrator register
+
+Release notes:
+
+<markdown notes>
+```
+
+Choose the version bump and the notes by release kind (Julia / Pkg SemVer):
+
+- **Patch / backward-compatible** (bug fixes, additive features): bump the
+  next-lower component — `1.2.3 → 1.2.4` (fix) or `1.3.0` (feature); `0.2.3 →
+  0.2.4`. Notes: a short summary of what was fixed/added — no "Breaking changes"
+  section needed.
+- **Breaking** (any change to existing public behaviour/API): bump the left-most
+  non-zero component — `1.2.3 → 2.0.0`, `0.2.3 → 0.3.0`. In the `0.0.x` range
+  every release is treated as breaking, so bump the patch (`0.0.1 → 0.0.2`).
+  Notes: document the breaking changes under a `## Breaking changes` heading
+  (what changed + how to migrate) — this is what users and TagBot's release rely
+  on.
+
+---
+
 ## What NOT to do
 
 - Do not silently change behaviour — if a refactor changes observable output,
