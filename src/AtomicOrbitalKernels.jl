@@ -33,7 +33,7 @@ using GaussianBasis: BasisSet
 # AbstractP4MLBasis interface; P4ML stays a dependency for the evaluation/AD/Lux
 # machinery, SpheriCart supplies the angular Ylm. Evaluation is KernelAbstractions
 # based on both CPU and GPU backends.
-import Polynomials4ML: AbstractP4MLBasis, BATCH,
+import Polynomials4ML: AbstractP4MLBasis,
                        _valtype, _gradtype,
                        _init_luxparams, _init_luxstate, pullback_ps,
                        _generate_input

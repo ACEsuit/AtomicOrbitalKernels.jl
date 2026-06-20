@@ -48,10 +48,13 @@ for TR in (:GaussianTypeRadials, :SlaterTypeRadials)
 end
 
 # --- species / DecoratedParticles input helpers ---
-# A `PState` carries position `x.𝐫` (an `SVector{3}`) and species `x.S`; the
-# internal kernel layer instead consumes radii `r` + species indices `sidx`.
+# A `PState` carries position `x.𝐫` (an `SVector{3}`) and species `x.S`. The
+# internal kernel layers consume already-extracted batches (radii `r` or
+# positions `Rs`, plus species indices `sidx`); the public layers take a vector
+# `X` of either coordinates (→ species 1) or `PState`s (→ species from `x.S`).
 _position(x::PState) = x.𝐫
 _radii(X::AbstractVector{<:PState}) = norm.(_position.(X))
+_radii(r::AbstractVector{<:Real}) = r
 
 # species label → species-axis index σ ∈ 1:NZ (host side)
 function _z2i(basis::GSRadials, s)
@@ -62,8 +65,13 @@ end
 _species_indices(basis::GSRadials, X::AbstractVector{<:PState}) =
         Int[ _z2i(basis, x.S) for x in X ]
 
-# default species indices (species 1 everywhere), on the backend of `r`/`X`
-_default_sidx(r) = fill!(similar(r, Int, length(r)), 1)
+# species indices for an input batch: from the `PState` species, else default to
+# species 1 (plain coordinates carry no species).
+_sidx(basis::GSRadials, X::AbstractVector{<:PState}) = _species_indices(basis, X)
+_sidx(basis::GSRadials, X::AbstractVector) = _default_sidx(X)
+
+# default species indices (species 1 everywhere), on the backend of the input
+_default_sidx(X) = fill!(similar(X, Int, length(X)), 1)
 
 # decay form, dispatched by family. The kernel is passed a `Val` tag (isbits, so
 # it works on the GPU); `_decay(basis, r)` is the host-side convenience.
@@ -138,11 +146,12 @@ end
 end
 
 # Two input layers: an internal kernel-facing layer taking radii `r` + species
-# indices `sidx` (both already on the target backend), and a DecoratedParticles
-# convenience layer taking `X[i]::PState` that extracts `r = ‖𝐫‖`, `sidx` on the
-# host. A call without `sidx` defaults to species 1 (single-species use).
+# indices `sidx` (both already on the target backend), and a public layer taking
+# a vector `X` of radii (→ species 1) or `PState`s (→ species from `x.S`), which
+# extracts `r`/`sidx` on the host and delegates.
 
-function evaluate(basis::GSRadials, r::BATCH, sidx::AbstractVector{<:Integer}, ps, st)
+function evaluate(basis::GSRadials, r::AbstractVector{<:Real},
+                  sidx::AbstractVector{<:Integer}, ps, st)
     R = _alloc_val(basis, r, ps, st)
     backend = KA.get_backend(R)
     _rnl_val_ka!(backend)(R, r, sidx, ps.ζ, ps.D, st.poly, _decaytag(basis);
@@ -151,19 +160,14 @@ function evaluate(basis::GSRadials, r::BATCH, sidx::AbstractVector{<:Integer}, p
     return R
 end
 
-evaluate(basis::GSRadials, r::BATCH, ps, st) =
-        evaluate(basis, r, _default_sidx(r), ps, st)
+evaluate(basis::GSRadials, X::AbstractVector, ps, st) =
+        evaluate(basis, _radii(X), _sidx(basis, X), ps, st)
 
-evaluate(basis::GSRadials, X::AbstractVector{<:PState}, ps, st) =
-        evaluate(basis, _radii(X), _species_indices(basis, X), ps, st)
-
-evaluate(basis::GSRadials, r::BATCH) =
-        evaluate(basis, r, _static_params(basis), _static_state(basis))
-
-evaluate(basis::GSRadials, X::AbstractVector{<:PState}) =
+evaluate(basis::GSRadials, X::AbstractVector) =
         evaluate(basis, X, _static_params(basis), _static_state(basis))
 
-function evaluate_ed(basis::GSRadials, r::BATCH, sidx::AbstractVector{<:Integer}, ps, st)
+function evaluate_ed(basis::GSRadials, r::AbstractVector{<:Real},
+                     sidx::AbstractVector{<:Integer}, ps, st)
     R  = _alloc_val(basis, r, ps, st)
     dR = _alloc_grad(basis, r, ps, st)
     backend = KA.get_backend(R)
@@ -173,22 +177,17 @@ function evaluate_ed(basis::GSRadials, r::BATCH, sidx::AbstractVector{<:Integer}
     return R, dR
 end
 
-evaluate_ed(basis::GSRadials, r::BATCH, ps, st) =
-        evaluate_ed(basis, r, _default_sidx(r), ps, st)
+evaluate_ed(basis::GSRadials, X::AbstractVector, ps, st) =
+        evaluate_ed(basis, _radii(X), _sidx(basis, X), ps, st)
 
-evaluate_ed(basis::GSRadials, X::AbstractVector{<:PState}, ps, st) =
-        evaluate_ed(basis, _radii(X), _species_indices(basis, X), ps, st)
-
-evaluate_ed(basis::GSRadials, r::BATCH) =
-        evaluate_ed(basis, r, _static_params(basis), _static_state(basis))
-
-evaluate_ed(basis::GSRadials, X::AbstractVector{<:PState}) =
+evaluate_ed(basis::GSRadials, X::AbstractVector) =
         evaluate_ed(basis, X, _static_params(basis), _static_state(basis))
 
 # ---- plain forward-only reference (testing oracle) ----
 
-function evaluate_ref(basis::GSRadials, r::AbstractVector, sidx::AbstractVector{<:Integer},
-                      ps, st)
+function evaluate_ref(basis::GSRadials, r::AbstractVector{<:Real},
+                      sidx::AbstractVector{<:Integer},
+                      ps = _static_params(basis), st = _static_state(basis))
     ζ, D = ps.ζ, ps.D
     poly = st.poly
     nRad, K, NZ = size(ζ)
@@ -206,14 +205,9 @@ function evaluate_ref(basis::GSRadials, r::AbstractVector, sidx::AbstractVector{
     return R
 end
 
-# species reference with default params (more specific than the optional-arg
-# method below, so `evaluate_ref(basis, r, sidx)` reaches the species path)
-evaluate_ref(basis::GSRadials, r::AbstractVector, sidx::AbstractVector{<:Integer}) =
-        evaluate_ref(basis, r, sidx, _static_params(basis), _static_state(basis))
-
-evaluate_ref(basis::GSRadials, r::AbstractVector,
+evaluate_ref(basis::GSRadials, X::AbstractVector,
              ps = _static_params(basis), st = _static_state(basis)) =
-        evaluate_ref(basis, r, ones(Int, length(r)), ps, st)
+        evaluate_ref(basis, _radii(X), _sidx(basis, X), ps, st)
 
 # ---- parameter pullback ----
 
@@ -251,7 +245,7 @@ const _PB_NGROUPS = 128
     end
 end
 
-function pullback_ps(∂R, basis::GSRadials, r::BATCH,
+function pullback_ps(∂R, basis::GSRadials, r::AbstractVector{<:Real},
                      sidx::AbstractVector{<:Integer}, ps, st)
     T = promote_type(eltype(∂R), eltype(ps.ζ), eltype(ps.D))
     ∂ζ = fill!(similar(ps.ζ, T), zero(T))
@@ -265,8 +259,5 @@ function pullback_ps(∂R, basis::GSRadials, r::BATCH,
     return (ζ = ∂ζ, D = ∂D)
 end
 
-pullback_ps(∂R, basis::GSRadials, r::BATCH, ps, st) =
-        pullback_ps(∂R, basis, r, _default_sidx(r), ps, st)
-
-pullback_ps(∂R, basis::GSRadials, X::AbstractVector{<:PState}, ps, st) =
-        pullback_ps(∂R, basis, _radii(X), _species_indices(basis, X), ps, st)
+pullback_ps(∂R, basis::GSRadials, X::AbstractVector, ps, st) =
+        pullback_ps(∂R, basis, _radii(X), _sidx(basis, X), ps, st)
