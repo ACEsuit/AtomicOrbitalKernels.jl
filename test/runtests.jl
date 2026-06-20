@@ -28,6 +28,9 @@ include(joinpath(@__DIR__, "utils_gpu.jl"))
     @testset "Atomic orbitals (eval)" begin
         include("orbitals/test_orbitals.jl")
     end
+    @testset "Basis-set data" begin
+        include("orbitals/test_basis_data.jl")
+    end
     @testset "2C/3C overlap ($gpu_backend)" begin
         include("test_gpu.jl")
     end

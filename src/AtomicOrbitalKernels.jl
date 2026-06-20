@@ -44,6 +44,7 @@ import ChainRulesCore: rrule, NoTangent, unthunk
 using SpheriCart: SolidHarmonics
 using LinearAlgebra: norm
 using Random: AbstractRNG
+import JSON3
 
 const ang2bohr = 1.8897261246257702
 
@@ -57,6 +58,7 @@ include("utils.jl")
 include("orbitals/gtostoradials.jl")
 include("orbitals/atomicorbitals.jl")
 include("orbitals/utils.jl")
+include("orbitals/basis_data.jl")
 
 export compile_basis, adapt_basis,
        batch_overlap!, batch_overlap,
@@ -65,5 +67,6 @@ export compile_basis, adapt_basis,
 # atomic-orbital evaluation API (user-facing only)
 export evaluate, evaluate_ed
 export gaussian_orbitals, slater_orbitals
+export load_basis, bundled_basis_names
 
 end # module AtomicOrbitalKernels
