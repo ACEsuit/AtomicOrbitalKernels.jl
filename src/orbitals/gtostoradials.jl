@@ -14,7 +14,6 @@ abstract type GSRadials <: AbstractP4MLBasis end
 struct GaussianTypeRadials{TM <: AbstractArray, LEN, NZ, TZ} <: GSRadials
     ζ::TM                          # [nRad × K × NZ] exponents     (learnable)
     D::TM                          # [nRad × K × NZ] coefficients  (learnable)
-    poly::SVector{LEN, Int}        # polynomial degree per radial function
     spec::SVector{LEN, NT_NL}      # (n, l) per radial function
     nnspec::SVector{LEN, NT_NNL}   # (n1, n2, l) provenance per radial function
     zlist::NTuple{NZ, TZ}          # species labels; species axis σ ↔ zlist[σ]
@@ -23,18 +22,17 @@ end
 struct SlaterTypeRadials{TM <: AbstractArray, LEN, NZ, TZ} <: GSRadials
     ζ::TM
     D::TM
-    poly::SVector{LEN, Int}
     spec::SVector{LEN, NT_NL}
     nnspec::SVector{LEN, NT_NNL}
     zlist::NTuple{NZ, TZ}
 end
 
 for TR in (:GaussianTypeRadials, :SlaterTypeRadials)
-    @eval function $TR(ζ, D, poly, spec, nnspec, zlist)
+    @eval function $TR(ζ, D, spec, nnspec, zlist)
         LEN = length(spec)
         nRad, K, NZ = size(ζ)
         @assert size(ζ) == size(D)
-        @assert nRad == LEN == length(poly) == length(nnspec)
+        @assert nRad == LEN == length(nnspec)
         @assert NZ == length(zlist)
         # store ζ,D as a statically-sized `MArray` (the sizes are recorded in the
         # basis type — a latent enabler for size-specialised kernels); the params
@@ -42,7 +40,7 @@ for TR in (:GaussianTypeRadials, :SlaterTypeRadials)
         ζm = MArray{Tuple{nRad, K, NZ}}(ζ)
         Dm = MArray{Tuple{nRad, K, NZ}}(D)
         zt = Tuple(zlist)
-        return $TR{typeof(ζm), LEN, NZ, eltype(zt)}(ζm, Dm, SVector{LEN, Int}(poly),
+        return $TR{typeof(ζm), LEN, NZ, eltype(zt)}(ζm, Dm,
                     SVector{LEN, NT_NL}(spec), SVector{LEN, NT_NNL}(nnspec), zt)
     end
 end
@@ -100,9 +98,16 @@ _valtype(::GSRadials, T::Type{<: Number}, ps, st) =
 # live only in the basis type.
 _static_params(b::GSRadials) = (ζ = Array(b.ζ), D = Array(b.D))
 _init_luxparams(b::GSRadials) = (ζ = Array(b.ζ), D = Array(b.D))
+# the radial power `r^poly[k]` is derived, not stored: with solid harmonics the
+# `r^l` is already inside `Z_lm`, so a GTO has no radial power (poly = 0) while an
+# STO keeps `r^(n-1-l)`; here `nnspec.n1 = n - l`, hence `poly = n1 - 1`.
+_powers(b::GaussianTypeRadials{TM, LEN}) where {TM, LEN} = zero(SVector{LEN, Int})
+_powers(b::SlaterTypeRadials{TM, LEN}) where {TM, LEN} =
+        SVector{LEN, Int}(nl.n1 - 1 for nl in b.nnspec)
+
 # the polynomial degrees are non-trainable state (so they move to the device
 # with the rest of the state rather than being copied on every call).
-_static_state(b::GSRadials) = (poly = b.poly,)
+_static_state(b::GSRadials) = (poly = _powers(b),)
 _init_luxstate(b::GSRadials) = _static_state(b)
 
 # ---- KA kernels (default path; CPU and GPU backends) ----

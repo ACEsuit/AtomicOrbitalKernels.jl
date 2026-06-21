@@ -1,6 +1,7 @@
 using BenchmarkTools
 using AtomicOrbitalKernels
-using AtomicOrbitalKernels: evaluate, evaluate_ed, pullback_ps, nspecies, _aorb_rrule
+using AtomicOrbitalKernels: evaluate, evaluate_ed, pullback_ps, nspecies, _aorb_rrule,
+                            _powers
 using StaticArrays, LinearAlgebra, Random
 
 SUITE = BenchmarkGroup()
@@ -21,7 +22,7 @@ function _add_orbital_group!(group, dev, T, basis, nX)
     sidx = dev(rand(1:NZ, nX))
     ps = (Rnl = (ζ = dev(T.(Array(basis.Rnl.ζ))), D = dev(T.(Array(basis.Rnl.D)))),
           Ylm = NamedTuple())
-    st = (Rnl = (poly = dev(collect(basis.Rnl.poly)),),
+    st = (Rnl = (poly = dev(collect(_powers(basis.Rnl))),),
           Ylm = (Flm = dev(T.(basis.Ylm.Flm)),),
           iR = dev(collect(basis.radidx)), iY = dev(collect(basis.ylmidx)))
     ∂P = dev(randn(T, nX, length(basis)))

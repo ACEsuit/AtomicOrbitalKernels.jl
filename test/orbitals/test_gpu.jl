@@ -21,7 +21,7 @@ include(joinpath(@__DIR__, "..", "utils_gpu.jl"))
     Xg = dev([SVector{3, Float32}(x) for x in Xh])
     psg = (Rnl = (ζ = dev(Float32.(psc0.Rnl.ζ)), D = dev(Float32.(psc0.Rnl.D))),
            Ylm = NamedTuple())
-    stg = (Rnl = (poly = dev(collect(basis.Rnl.poly)),),
+    stg = (Rnl = (poly = dev(collect(AOK._powers(basis.Rnl))),),
            Ylm = (Flm = dev(basis.Ylm.Flm),),
            iR = dev(collect(basis.radidx)),
            iY = dev(collect(basis.ylmidx)))
@@ -74,7 +74,7 @@ end
     sg = dev(sidx)
     psg = (Rnl = (ζ = dev(Float32.(psc.Rnl.ζ)), D = dev(Float32.(psc.Rnl.D))),
            Ylm = NamedTuple())
-    stg = (Rnl = (poly = dev(collect(basis.Rnl.poly)),),
+    stg = (Rnl = (poly = dev(collect(AOK._powers(basis.Rnl))),),
            Ylm = (Flm = dev(basis.Ylm.Flm),),
            iR = dev(collect(basis.radidx)), iY = dev(collect(basis.ylmidx)))
 
