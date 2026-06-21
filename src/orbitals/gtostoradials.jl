@@ -14,7 +14,7 @@ abstract type GSRadials <: AbstractP4MLBasis end
 struct GaussianTypeRadials{TM <: AbstractArray, LEN, NZ, TZ} <: GSRadials
     ζ::TM                          # [nRad × K × NZ] exponents     (learnable)
     D::TM                          # [nRad × K × NZ] coefficients  (learnable)
-    poly::Vector{Int}              # polynomial degree per radial function
+    poly::SVector{LEN, Int}        # polynomial degree per radial function
     spec::SVector{LEN, NT_NL}      # (n, l) per radial function
     nnspec::SVector{LEN, NT_NNL}   # (n1, n2, l) provenance per radial function
     zlist::NTuple{NZ, TZ}          # species labels; species axis σ ↔ zlist[σ]
@@ -23,7 +23,7 @@ end
 struct SlaterTypeRadials{TM <: AbstractArray, LEN, NZ, TZ} <: GSRadials
     ζ::TM
     D::TM
-    poly::Vector{Int}
+    poly::SVector{LEN, Int}
     spec::SVector{LEN, NT_NL}
     nnspec::SVector{LEN, NT_NNL}
     zlist::NTuple{NZ, TZ}
@@ -42,7 +42,7 @@ for TR in (:GaussianTypeRadials, :SlaterTypeRadials)
         ζm = MArray{Tuple{nRad, K, NZ}}(ζ)
         Dm = MArray{Tuple{nRad, K, NZ}}(D)
         zt = Tuple(zlist)
-        return $TR{typeof(ζm), LEN, NZ, eltype(zt)}(ζm, Dm, collect(Int, poly),
+        return $TR{typeof(ζm), LEN, NZ, eltype(zt)}(ζm, Dm, SVector{LEN, Int}(poly),
                     SVector{LEN, NT_NL}(spec), SVector{LEN, NT_NNL}(nnspec), zt)
     end
 end
