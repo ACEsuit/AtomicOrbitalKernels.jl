@@ -97,6 +97,7 @@ end
             @test P2 ≈ P
             @test size(dP) == (nX, Nb)
             @test eltype(dP) <: VState
+            @test dP[1].𝐫 isa SVector{3, Float64}
 
             # ForwardDiff spatial gradient (species fixed per point)
             U  = [ @SVector randn(3) for _ = 1:nX ]

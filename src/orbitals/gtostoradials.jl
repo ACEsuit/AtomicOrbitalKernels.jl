@@ -66,7 +66,9 @@ end
 _species_indices(basis::GSRadials, X::AbstractVector{<:PState}) =
         [ _z2i(basis, x.S) for x in X ]
 
-_species_indices(basis::GSRadials, X::AbstractVector{<: SVector{3}}) =
+# any non-`PState` input (radii for the radial layer, positions when the orbital
+# delegates here) carries no species → default to species 1, on the input backend.
+_species_indices(basis::GSRadials, X::AbstractVector) =
         fill!(similar(X, Int, length(X)), 1)
 
 

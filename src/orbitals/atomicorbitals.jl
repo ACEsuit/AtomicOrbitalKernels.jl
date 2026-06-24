@@ -167,10 +167,10 @@ evaluate_ed(basis::AtomicOrbitals, X::AbstractVector, ps, st) =
 
 function evaluate_ed(basis::AtomicOrbitals, X::AbstractVector{<: PState}, ps, st)
     Rnlm, _dRnlm = evaluate_ed(basis, _positions(X), _species_indices(basis, X), ps, st)
-    dRnlm = map(x -> VState(𝐫 = x), _dRnlm) 
+    dRnlm = map(x -> VState(𝐫 = x), _dRnlm)
     return Rnlm, dRnlm
 end
-        
+
 # ---- plain forward-only reference (testing oracle) ----
 
 function evaluate_ref(basis::AtomicOrbitals, X::AbstractVector,

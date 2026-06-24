@@ -36,7 +36,7 @@ function _add_orbital_group!(group, dev, T, basis, nX)
     # orbital parameter pullback (kernel `_aorb_pbrad_ka!` + radial)
     group["pullback_ps"]     = @benchmarkable pullback_ps($∂P, $basis, $X, $sidx, $ps, $st)
     # rrule pullback: X-pullback (kernel `_aorb_pbx_ka!`) + parameter pullback
-    _, pb = _aorb_rrule(basis, X, sidx, ps, st)
+    _, pb = _aorb_rrule(basis, X, X, sidx, ps, st)
     group["rrule_pullback"]  = @benchmarkable $pb($∂P)
     return group
 end
