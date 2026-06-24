@@ -127,7 +127,7 @@ function evaluate(basis::AtomicOrbitals, Rs::AbstractVector{<:SVector{3}},
     backend = KA.get_backend(Rnlm)
     r = norm.(Rs)
     Rnl = evaluate(basis.Rnl, r, sidx, ps.Rnl, st.Rnl)
-    Ylm = evaluate(basis.Ylm, Rs, ps.Ylm, st.Ylm)
+    Ylm = SpheriCart.compute(basis.Ylm, Rs, st.Ylm)
     # `Rnl` and `Ylm` come from independent kernel launches; make sure both are
     # finished before the product kernel consumes them.
     KA.synchronize(backend)
@@ -149,7 +149,7 @@ function evaluate_ed(basis::AtomicOrbitals, Rs::AbstractVector{<:SVector{3}},
     backend = KA.get_backend(Rnlm)
     r = norm.(Rs)
     Rnl, dRnl = evaluate_ed(basis.Rnl, r, sidx, ps.Rnl, st.Rnl)
-    Ylm, dYlm = evaluate_ed(basis.Ylm, Rs, ps.Ylm, st.Ylm)
+    Ylm, dYlm = SpheriCart.compute_with_gradients(basis.Ylm, Rs, st.Ylm)
     # `Rnl` and `Ylm` come from independent kernel launches; make sure both are
     # finished before the product kernel consumes them.
     KA.synchronize(backend)
@@ -177,7 +177,7 @@ function evaluate_ref(basis::AtomicOrbitals, X::AbstractVector,
                       ps = _static_params(basis), st = _static_state(basis))
     Rs = _positions(X)
     Rnl = evaluate_ref(basis.Rnl, norm.(Rs), _species_indices(basis, X), ps.Rnl, st.Rnl)
-    Ylm = evaluate(basis.Ylm, Rs, ps.Ylm, st.Ylm)
+    Ylm = SpheriCart.compute(basis.Ylm, Rs, st.Ylm)
     return Rnl[:, basis.radidx] .* Ylm[:, basis.ylmidx]
 end
 
@@ -196,7 +196,7 @@ function pullback_ps(∂Rnlm, basis::AtomicOrbitals, Rs::AbstractVector{<:SVecto
                      sidx::AbstractVector{<:Integer}, ps::NamedTuple, st)
     T = promote_type(eltype(∂Rnlm), eltype(eltype(Rs)))
     r = norm.(Rs)
-    Ylm = evaluate(basis.Ylm, Rs, ps.Ylm, st.Ylm)
+    Ylm = SpheriCart.compute(basis.Ylm, Rs, st.Ylm)
     ∂Rnl = fill!(similar(Ylm, T, length(Rs), length(basis.Rnl)), zero(T))
     backend = KA.get_backend(∂Rnl)
     KA.synchronize(backend)

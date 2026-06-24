@@ -5,8 +5,9 @@
 using AtomicOrbitalKernels
 using AtomicOrbitalKernels: evaluate, evaluate_ed
 import AtomicOrbitalKernels as AOK
-using StaticArrays
-using LinearAlgebra
+using StaticArrays, LuxCore
+using LinearAlgebra, Random, Test 
+rng = MersenneTwister(1234)
 include(joinpath(@__DIR__, "..", "utils_gpu.jl"))
 
 @testset "AtomicOrbitals eval ($(gpu_backend), Float32)" begin
@@ -17,14 +18,13 @@ include(joinpath(@__DIR__, "..", "utils_gpu.jl"))
 
     # params + state moved to the device (indices/poly/Flm live in the state);
     # `_static_params` returns the ζ/D as plain `Array`s (the basis stores MArrays)
-    psc0 = AOK._static_params(basis)
+    ps = LuxCore.initialparameters(rng, basis)
+    _st = LuxCore.initialstates(rng, basis)
+    st = (Rnl = _st.Rnl, Ylm = (Flm = Float32.(_st.Ylm.Flm),), 
+            iR = _st.iR, iY = _st.iY)
+    psg = dev(ps)
+    stg = dev(st)
     Xg = dev([SVector{3, Float32}(x) for x in Xh])
-    psg = (Rnl = (ζ = dev(Float32.(psc0.Rnl.ζ)), D = dev(Float32.(psc0.Rnl.D))),
-           Ylm = NamedTuple())
-    stg = (Rnl = (poly = dev(collect(AOK._powers(basis.Rnl))),),
-           Ylm = (Flm = dev(basis.Ylm.Flm),),
-           iR = dev(collect(basis.radidx)),
-           iY = dev(collect(basis.ylmidx)))
 
     Pg = evaluate(basis, Xg, psg, stg)
     @test dev === identity || !(Pg isa Array)    # output stays on the device
@@ -72,11 +72,13 @@ end
 
     Xg = dev([SVector{3, Float32}(x) for x in Xh])
     sg = dev(sidx)
-    psg = (Rnl = (ζ = dev(Float32.(psc.Rnl.ζ)), D = dev(Float32.(psc.Rnl.D))),
-           Ylm = NamedTuple())
-    stg = (Rnl = (poly = dev(collect(AOK._powers(basis.Rnl))),),
-           Ylm = (Flm = dev(basis.Ylm.Flm),),
-           iR = dev(collect(basis.radidx)), iY = dev(collect(basis.ylmidx)))
+
+    ps = LuxCore.initialparameters(rng, basis)
+    _st = LuxCore.initialstates(rng, basis)
+    st = (Rnl = _st.Rnl, Ylm = (Flm = Float32.(_st.Ylm.Flm),), 
+            iR = _st.iR, iY = _st.iY)
+    psg = dev(ps)
+    stg = dev(st)
 
     Pg = evaluate(basis, Xg, sg, psg, stg)
     @test dev === identity || !(Pg isa Array)

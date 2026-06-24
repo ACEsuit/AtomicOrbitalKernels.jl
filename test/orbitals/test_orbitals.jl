@@ -75,7 +75,6 @@ using DecoratedParticles: PState, VState
     end
 end
 
-(lbl, basis) = ("gaussian", gaussian_orbitals(4, 3; nspecies = 3, zlist = zlist))
 @testset "multi-species (PState input)" begin
     rng = MersenneTwister(4321)
     zlist = (6, 1, 8)          # species labels distinct from their 1:NZ indices
