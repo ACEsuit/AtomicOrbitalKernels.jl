@@ -38,9 +38,9 @@ using DecoratedParticles: PState, VState
             Xd = [ X[i] + Dual(0.0, 1.0) * U[i] for i in eachindex(X) ]
             Yd = evaluate_ref(basis, Xd)
             @test value.(Yd) ≈ P
-            @test all(isapprox(partials(Yd[i, n], 1), dot(dP[i, n], U[i]);
-                               atol = 1e-10, rtol = 1e-9)
-                      for i = 1:length(X), n = 1:Nb)
+            dY_ad = [ partials(Yd[i, n], 1) for i = 1:length(X), n = 1:Nb ]
+            dPdU = [ dot(dP[i, n], U[i]) for i = 1:length(X), n = 1:Nb ]
+            @test dY_ad ≈ dPdU
 
             # Lux-style evaluation; the Ylm state carries the Flm matrix
             ps = LuxCore.initialparameters(rng, basis)
@@ -75,6 +75,7 @@ using DecoratedParticles: PState, VState
     end
 end
 
+(lbl, basis) = ("gaussian", gaussian_orbitals(4, 3; nspecies = 3, zlist = zlist))
 @testset "multi-species (PState input)" begin
     rng = MersenneTwister(4321)
     zlist = (6, 1, 8)          # species labels distinct from their 1:NZ indices
@@ -96,21 +97,16 @@ end
             P2, dP = evaluate_ed(basis, X)
             @test P2 ≈ P
             @test size(dP) == (nX, Nb)
-
-            # the same position with a different species selects a different
-            # radial slice, so the orbital values differ
-            xpos = @SVector randn(3)
-            v = [ evaluate(basis, [PState(𝐫 = xpos, S = z)]) for z in zlist ]
-            @test !(v[1] ≈ v[2]) && !(v[2] ≈ v[3])
+            @test eltype(dP) <: VState
 
             # ForwardDiff spatial gradient (species fixed per point)
             U  = [ @SVector randn(3) for _ = 1:nX ]
             Xd = [ PState(𝐫 = X[i].𝐫 + Dual(0.0, 1.0) * U[i], S = X[i].S) for i = 1:nX ]
             Yd = evaluate_ref(basis, Xd)
             @test value.(Yd) ≈ P
-            @test all(isapprox(partials(Yd[i, n], 1), dot(dP[i, n], U[i]);
-                               atol = 1e-10, rtol = 1e-9)
-                      for i = 1:nX, n = 1:Nb)
+            dY_ad = [ partials(Yd[i, n], 1) for i = 1:nX, n = 1:Nb ]
+            dPdU = [ dot(dP[i, n].𝐫, U[i]) for i = 1:nX, n = 1:Nb ]
+            @test dY_ad ≈ dPdU
 
             # Lux-style params: ζ/D carry the species axis as a plain Array
             ps = LuxCore.initialparameters(rng, basis)

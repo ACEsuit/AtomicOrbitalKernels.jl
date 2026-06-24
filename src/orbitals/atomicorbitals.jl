@@ -113,8 +113,8 @@ end
 # coordinates, or come from `x.S` for `PState`s.
 _positions(Rs::AbstractVector{<:SVector{3}}) = Rs
 _positions(X::AbstractVector{<:PState}) = _position.(X)
-_sidx(basis::AtomicOrbitals, X::AbstractVector{<:PState}) = _species_indices(basis.Rnl, X)
-_sidx(basis::AtomicOrbitals, X::AbstractVector) = _default_sidx(X)
+_species_indices(basis::AtomicOrbitals, X::AbstractVector) =
+        _species_indices(basis.Rnl, X)
 
 # Two input layers: an internal layer over positions `Rs` (`SVector{3}`) + species
 # indices `sidx`, and a public layer over a vector `X` of positions (→ species 1)
@@ -137,7 +137,7 @@ function evaluate(basis::AtomicOrbitals, Rs::AbstractVector{<:SVector{3}},
 end
 
 evaluate(basis::AtomicOrbitals, X::AbstractVector, ps, st) =
-        evaluate(basis, _positions(X), _sidx(basis, X), ps, st)
+        evaluate(basis, _positions(X), _species_indices(basis, X), ps, st)
 
 evaluate(basis::AtomicOrbitals, X::AbstractVector) =
         evaluate(basis, X, _static_params(basis), _static_state(basis))
@@ -159,18 +159,24 @@ function evaluate_ed(basis::AtomicOrbitals, Rs::AbstractVector{<:SVector{3}},
     return Rnlm, dRnlm
 end
 
-evaluate_ed(basis::AtomicOrbitals, X::AbstractVector, ps, st) =
-        evaluate_ed(basis, _positions(X), _sidx(basis, X), ps, st)
-
 evaluate_ed(basis::AtomicOrbitals, X::AbstractVector) =
         evaluate_ed(basis, X, _static_params(basis), _static_state(basis))
 
+evaluate_ed(basis::AtomicOrbitals, X::AbstractVector, ps, st) =
+        evaluate_ed(basis, _positions(X), _species_indices(basis, X), ps, st)
+
+function evaluate_ed(basis::AtomicOrbitals, X::AbstractVector{<: PState}, ps, st)
+    Rnlm, _dRnlm = evaluate_ed(basis, _positions(X), _species_indices(basis, X), ps, st)
+    dRnlm = map(x -> VState(𝐫 = x), _dRnlm) 
+    return Rnlm, dRnlm
+end
+        
 # ---- plain forward-only reference (testing oracle) ----
 
 function evaluate_ref(basis::AtomicOrbitals, X::AbstractVector,
                       ps = _static_params(basis), st = _static_state(basis))
     Rs = _positions(X)
-    Rnl = evaluate_ref(basis.Rnl, norm.(Rs), _sidx(basis, X), ps.Rnl, st.Rnl)
+    Rnl = evaluate_ref(basis.Rnl, norm.(Rs), _species_indices(basis, X), ps.Rnl, st.Rnl)
     Ylm = evaluate(basis.Ylm, Rs, ps.Ylm, st.Ylm)
     return Rnl[:, basis.radidx] .* Ylm[:, basis.ylmidx]
 end
@@ -201,7 +207,7 @@ function pullback_ps(∂Rnlm, basis::AtomicOrbitals, Rs::AbstractVector{<:SVecto
 end
 
 pullback_ps(∂Rnlm, basis::AtomicOrbitals, X::AbstractVector, ps::NamedTuple, st) =
-        pullback_ps(∂Rnlm, basis, _positions(X), _sidx(basis, X), ps, st)
+        pullback_ps(∂Rnlm, basis, _positions(X), _species_indices(basis, X), ps, st)
 
 # ---- ChainRules: differentiable w.r.t. positions X and params ps ----
 #
@@ -255,8 +261,8 @@ end
 # numbers/SArrays): positions are a strict subset, `PState`s are disjoint.
 rrule(::typeof(evaluate), basis::AtomicOrbitals,
       X::AbstractVector{<:SVector{3}}, ps, st) =
-        _aorb_rrule(basis, X, _positions(X), _sidx(basis, X), ps, st)
+        _aorb_rrule(basis, X, _positions(X), _species_indices(basis, X), ps, st)
 
 rrule(::typeof(evaluate), basis::AtomicOrbitals,
       X::AbstractVector{<:PState}, ps, st) =
-        _aorb_rrule(basis, X, _positions(X), _sidx(basis, X), ps, st)
+        _aorb_rrule(basis, X, _positions(X), _species_indices(basis, X), ps, st)

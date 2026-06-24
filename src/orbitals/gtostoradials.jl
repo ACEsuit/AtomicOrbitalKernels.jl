@@ -60,16 +60,16 @@ function _z2i(basis::GSRadials, s)
     σ === nothing && error("species $(s) not in basis species list $(basis.zlist)")
     return σ
 end
-_species_indices(basis::GSRadials, X::AbstractVector{<:PState}) =
-        Int[ _z2i(basis, x.S) for x in X ]
 
 # species indices for an input batch: from the `PState` species, else default to
 # species 1 (plain coordinates carry no species).
-_sidx(basis::GSRadials, X::AbstractVector{<:PState}) = _species_indices(basis, X)
-_sidx(basis::GSRadials, X::AbstractVector) = _default_sidx(X)
+_species_indices(basis::GSRadials, X::AbstractVector{<:PState}) =
+        [ _z2i(basis, x.S) for x in X ]
 
-# default species indices (species 1 everywhere), on the backend of the input
-_default_sidx(X) = fill!(similar(X, Int, length(X)), 1)
+_species_indices(basis::GSRadials, X::AbstractVector{<: SVector{3}}) =
+        fill!(similar(X, Int, length(X)), 1)
+
+
 
 # decay form, dispatched by family. The kernel is passed a `Val` tag (isbits, so
 # it works on the GPU); `_decay(basis, r)` is the host-side convenience.
@@ -120,7 +120,7 @@ _init_luxstate(b::GSRadials) = _static_state(b)
     ri = r[i]
     fx = _decay(tag, ri)
     s = zero(eltype(R))
-    # TODO: can this be unrolled?
+    # TODO: can this be unrolled? Is it worth being unrolled? 
     @inbounds for m = 1:K
         s += D[k, m, σ] * exp(-ζ[k, m, σ] * fx)
     end
@@ -166,7 +166,7 @@ function evaluate(basis::GSRadials, r::AbstractVector{<:Real},
 end
 
 evaluate(basis::GSRadials, X::AbstractVector, ps, st) =
-        evaluate(basis, _radii(X), _sidx(basis, X), ps, st)
+        evaluate(basis, _radii(X), _species_indices(basis, X), ps, st)
 
 evaluate(basis::GSRadials, X::AbstractVector) =
         evaluate(basis, X, _static_params(basis), _static_state(basis))
@@ -183,7 +183,7 @@ function evaluate_ed(basis::GSRadials, r::AbstractVector{<:Real},
 end
 
 evaluate_ed(basis::GSRadials, X::AbstractVector, ps, st) =
-        evaluate_ed(basis, _radii(X), _sidx(basis, X), ps, st)
+        evaluate_ed(basis, _radii(X), _species_indices(basis, X), ps, st)
 
 evaluate_ed(basis::GSRadials, X::AbstractVector) =
         evaluate_ed(basis, X, _static_params(basis), _static_state(basis))
@@ -212,7 +212,7 @@ end
 
 evaluate_ref(basis::GSRadials, X::AbstractVector,
              ps = _static_params(basis), st = _static_state(basis)) =
-        evaluate_ref(basis, _radii(X), _sidx(basis, X), ps, st)
+        evaluate_ref(basis, _radii(X), _species_indices(basis, X), ps, st)
 
 # ---- parameter pullback ----
 
@@ -265,4 +265,4 @@ function pullback_ps(∂R, basis::GSRadials, r::AbstractVector{<:Real},
 end
 
 pullback_ps(∂R, basis::GSRadials, X::AbstractVector, ps, st) =
-        pullback_ps(∂R, basis, _radii(X), _sidx(basis, X), ps, st)
+        pullback_ps(∂R, basis, _radii(X), _species_indices(basis, X), ps, st)
