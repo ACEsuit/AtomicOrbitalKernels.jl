@@ -33,7 +33,7 @@ using GaussianBasis: BasisSet
 # AbstractP4MLBasis interface; P4ML stays a dependency for the evaluation/AD/Lux
 # machinery, SpheriCart supplies the angular Ylm. Evaluation is KernelAbstractions
 # based on both CPU and GPU backends.
-import Polynomials4ML: AbstractP4MLBasis, BATCH,
+import Polynomials4ML: AbstractP4MLBasis,
                        _valtype, _gradtype,
                        _init_luxparams, _init_luxstate, pullback_ps,
                        _generate_input
@@ -41,9 +41,14 @@ import Polynomials4ML: AbstractP4MLBasis, BATCH,
 # package owns them (see utils.jl), so we can give them `Any` fallbacks.
 import ACEbase: evaluate, evaluate_ed, natural_indices
 import ChainRulesCore: rrule, NoTangent, unthunk
+import SpheriCart
 using SpheriCart: SolidHarmonics
 using LinearAlgebra: norm
 using Random: AbstractRNG
+# DecoratedParticles supplies the `PState` input type (position `x.𝐫` + species
+# `x.S`) and its tangent type `VState`; a core dependency for now (an extension is
+# a later option).
+using DecoratedParticles: PState, VState
 
 const ang2bohr = 1.8897261246257702
 

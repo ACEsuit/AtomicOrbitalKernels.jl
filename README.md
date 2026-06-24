@@ -4,25 +4,25 @@
 
 Fast, backend-agnostic (CPU / CUDA / Metal / ROCm) kernels for **atomic
 orbitals**, written with
-[KernelAbstractions.jl](https://github.com/JuliaGPU/KernelAbstractions.jl) so a
-single kernel set runs on every backend. The package has two complementary
+[KernelAbstractions.jl](https://github.com/JuliaGPU/KernelAbstractions.jl). The package has two complementary
 halves:
 
 1. **Atomic-orbital evaluation** — batched evaluation of orbital bases
-   `ϕ_{nlm}(𝐫) = R_{nl}(r) · Y_{lm}(𝐫̂)` (Gaussian-type, Slater-type, or any
+   `ϕ_{nlm}(𝐫, Z) = R_{nl}(r, Z) · Y_{lm}(𝐫̂)` (Gaussian-type, Slater-type, or any
    radial × real spherical harmonics) with **learnable** radial parameters
    `(ζ, D)`. Values and spatial gradients (`evaluate` / `evaluate_ed`),
    `Lux`-compatible parameters/state, and full `ChainRulesCore`
    differentiability in **both positions and parameters**.
 2. **Overlap integrals** — batched 2-center and 3-center Cartesian-Gaussian
    overlap integrals on top of
-   [GaussianBasis.jl](https://github.com/FermiQC/GaussianBasis.jl).
+   [GaussianBasis.jl](https://github.com/FermiQC/GaussianBasis.jl). (Future work is to implement overlaps for general AO basis sets.)
 
-Built on [Polynomials4ML.jl](https://github.com/ACEsuit/Polynomials4ML.jl),
-[SpheriCart.jl](https://github.com/ACEsuit/SpheriCart.jl), and
-[ACEbase.jl](https://github.com/ACEsuit/ACEbase.jl). This is early, somewhat
+Built on [Polynomials4ML.jl](https://github.com/ACEsuit/Polynomials4ML.jl) and
+[SpheriCart.jl](https://github.com/ACEsuit/SpheriCart.jl). Aim for compatibility with GaussianBasis.jl (can use it to load GTO parameters). This is early, somewhat
 experimental software written with specific research projects in mind, but it is
 already usable on CPU and GPU.
+
+The rest of the readme needs some cleanup, take it with a grain of salt.
 
 ## Atomic-orbital evaluation
 
