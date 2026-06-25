@@ -1,136 +1,133 @@
-# Validate the AtomicOrbitals evaluation against Gaussian basis sets loaded with
-# GaussianBasis.jl. GaussianBasis has no AO-value evaluator (it only computes
-# integrals), so we (1) convert each `BasisSet` to our `AtomicOrbitals` and compare
-# our `evaluate` to an independent reference built from the same shell data, and
-# (2) cross-check the orbital overlap against GaussianBasis's own `overlap` (libcint).
+# Validate `gaussian_orbitals(::GaussianBasis.BasisSet)` against Gaussian basis sets
+# loaded with GaussianBasis.jl. GaussianBasis has no AO-value evaluator (it only
+# computes integrals), so we (1) compare our `evaluate` to an independent reference
+# built from the same shell data, and (2) cross-check the single-atom orbital overlap
+# against GaussianBasis's own `overlap` (libcint).
 #
-# Key facts that make this clean (see the test for the verification):
-#  - GaussianBasis spherical `coef` are L2-normalized and SpheriCart `SolidHarmonics`
-#    default to `:L2`, so feeding `(ζ = exp, D = coef, poly = 0)` reproduces the
-#    GaussianBasis-defined AO with NO extra normalization constant.
-#  - The `r^l` lives in the solid harmonic, so the radial power is 0 (GTO).
-#  - We use single atoms at the ORIGIN: our orbitals are centre-free, GaussianBasis
-#    AOs are atom-centred, so they coincide only there.
-#  - libcint and SpheriCart order the `m` within a shell differently — value
-#    comparisons are done per-`(l,m)` (order-safe) and the overlap cross-check uses
-#    order-independent sorted eigenvalues.
+# The converter maps each chemical ELEMENT to one species (per-species `(ζ,D)`, shared
+# `(n,l)` spec, zero-padded where an element lacks a shell). `coef` are taken verbatim
+# (L2-normalized) and SpheriCart `SolidHarmonics` are `:L2`, so AO values match with no
+# normalization constant; `poly = 0` (the `r^l` is in the solid harmonic). Orbitals are
+# centre-free → single atoms at the origin; libcint vs SpheriCart order `m` differently,
+# so value checks are per-`(l,m)` and the overlap check uses sorted eigenvalues.
 
 using AtomicOrbitalKernels
 import AtomicOrbitalKernels as AOK
 using AtomicOrbitalKernels: evaluate, evaluate_ed, evaluate_ref
 using GaussianBasis: BasisSet, overlap
+using AtomsBase: ChemicalSpecies, atomic_number
+using DecoratedParticles: PState
 using StaticArrays, LinearAlgebra, Test
 import SpheriCart
 
-const _NTNL  = NamedTuple{(:n, :l), Tuple{Int, Int}}
-const _NTNNL = NamedTuple{(:n1, :n2, :l), Tuple{Int, Int, Int}}
-
-# convert a (spherical) GaussianBasis.BasisSet to our AtomicOrbitals: one radial per
-# shell, `ζ = shell.exp`, `D = shell.coef` (already normalized — taken verbatim),
-# `poly = 0`. Single species; atoms assumed centred at the origin.
-function _orbitals_from_basisset(bs; T = Float64)
-    shells = bs.basis
-    nRad = length(shells)
-    K = maximum(length(s.exp) for s in shells)
-    ζ = ones(T, nRad, K, 1)
-    D = zeros(T, nRad, K, 1)
-    spec = _NTNL[];  nnspec = _NTNNL[];  ncount = Dict{Int, Int}()
-    for (k, s) in enumerate(shells)
-        nk = length(s.exp)
-        @views ζ[k, 1:nk, 1] .= s.exp        # remaining ζ stay 1 (inert; D = 0 there)
-        @views D[k, 1:nk, 1] .= s.coef
-        n = (ncount[s.l] = get(ncount, s.l, 0) + 1)
-        push!(spec,   (n = n, l = s.l))
-        push!(nnspec, (n1 = n, n2 = 1, l = s.l))
-    end
-    Lmax = maximum(s.l for s in shells)
-    radial = AOK.GaussianTypeRadials(ζ, D, spec, nnspec, (1,))
-    return AOK.AtomicOrbitals(radial, SpheriCart.SolidHarmonics(Lmax))
-end
-
-# independent reference: χ_{l,m}(R) = [Σ_k coef_k exp(-exp_k |R|²)] · Z_{l,m}(R),
-# with Z the SpheriCart solid harmonic at linear index l²+l+m+1. Assembled in our
-# orbital column order (shells in `bs.basis` order, m = -l:l), matching `AtomicOrbitals`.
-function _gb_reference(bs, Xpos)
-    shells = bs.basis
-    Lmax = maximum(s.l for s in shells)
+# independent reference, keyed by per-point atomic number `Zs[i]`: for orbital
+# `(n,l,m)` use that element's n-th shell of angular momentum `l` (0 if it lacks one,
+# i.e. a padded slot), χ = [Σ_k coef_k exp(-exp_k |R|²)] · Z_{l,m}(R). Column order
+# matches `orb.spec` (shells per element are angular-momentum-ordered in GaussianBasis).
+function _gb_ref(orb, bs, pos, Zs)
+    spec = orb.spec
+    Lmax = maximum(s.l for s in bs.basis)
     sh = SpheriCart.SolidHarmonics(Lmax)
-    P = zeros(eltype(eltype(Xpos)), length(Xpos), bs.nbas)
-    col = 0
-    for s in shells
-        for (i, R) in enumerate(Xpos)
-            rad = sum(s.coef[k] * exp(-s.exp[k] * dot(R, R)) for k in eachindex(s.exp))
-            Z = SpheriCart.compute(sh, R)
-            for (j, m) in enumerate(-s.l:s.l)
-                P[i, col + j] = rad * Z[s.l^2 + s.l + m + 1]
-            end
+    P = zeros(eltype(eltype(pos)), length(pos), length(orb))
+    for (i, R) in enumerate(pos)
+        eshells = filter(s -> Int(s.atom.Z) == Zs[i], bs.basis)
+        Zh = SpheriCart.compute(sh, R)
+        for (col, p) in enumerate(spec)
+            sl = filter(s -> s.l == p.l, eshells)
+            rad = p.n <= length(sl) ?
+                  sum(sl[p.n].coef[k] * exp(-sl[p.n].exp[k] * dot(R, R))
+                      for k in eachindex(sl[p.n].exp)) : zero(eltype(P))
+            P[i, col] = rad * Zh[p.l^2 + p.l + p.m + 1]
         end
-        col += 2 * s.l + 1
     end
     return P
 end
 
-# analytic overlap of the converted orbitals (single atom at the origin): different
-# (l,m) are orthogonal (L2 harmonics), same (l,m) couple radially via the Gaussian
-# moment ∫₀^∞ exp(-γr²) r^{2l+2} dr = ½ Γ(l+3/2) γ^{-(l+3/2)}, Γ(l+3/2) =
-# (2l+1)!!/2^{l+1} · √π. Used as a grid-free, libcint-independent overlap oracle.
+# analytic single-atom overlap of the converted (species-1) orbitals: different (l,m)
+# are orthogonal (L2 harmonics), same (l,m) couple radially via the Gaussian moment
+# ∫₀^∞ exp(-γr²) r^{2l+2} dr = ½ Γ(l+3/2) γ^{-(l+3/2)}, Γ(l+3/2) = (2l+1)!!/2^{l+1}·√π.
+# Grid-free, libcint-independent overlap oracle for single-element sets.
 function _analytic_overlap(orb)
-    ζ = orb.Rnl.ζ;  D = orb.Rnl.D                      # [nRad × K × 1] MArrays
-    spec = orb.spec                                    # (n,l,m) per orbital
-    nb = length(orb)
+    ζ = orb.Rnl.ζ;  D = orb.Rnl.D
+    spec = orb.spec;  nb = length(orb)
     S = zeros(Float64, nb, nb)
-    dfac(n) = (p = 1.0; for k = 1:2:n; p *= k; end; p) # double factorial n!!
+    dfac(n) = (p = 1.0; for k = 1:2:n; p *= k; end; p)   # n!!
     for i = 1:nb, j = 1:nb
         (spec[i].l == spec[j].l && spec[i].m == spec[j].m) || continue
-        l = spec[i].l
-        ki = orb.radidx[i];  kj = orb.radidx[j]
-        g = 0.5 * dfac(2l + 1) / 2.0^(l + 1) * sqrt(pi)   # ½ Γ(l+3/2)
+        l = spec[i].l;  ki = orb.radidx[i];  kj = orb.radidx[j]
+        g = 0.5 * dfac(2l + 1) / 2.0^(l + 1) * sqrt(pi)
         acc = 0.0
         for a = 1:size(ζ, 2), b = 1:size(ζ, 2)
-            acc += D[ki, a, 1] * D[kj, b, 1] *
-                   (ζ[ki, a, 1] + ζ[kj, b, 1])^(-(l + 1.5))
+            acc += D[ki, a, 1] * D[kj, b, 1] * (ζ[ki, a, 1] + ζ[kj, b, 1])^(-(l + 1.5))
         end
         S[i, j] = g * acc
     end
     return S
 end
 
-@testset "GaussianBasis conversion + evaluation" begin
-    # spherical basis sets (default); single atom at the origin. sto-3g/H is the
-    # minimal smoke; 6-31g/C adds contracted s,p; cc-pvdz/O and def2-svp/O add d.
+@testset "single element" begin
+    # single atom at the origin; sto-3g/H minimal, 6-31g/C s,p, cc-pvdz/O & def2-svp/O s,p,d
     for (name, el) in (("sto-3g", "H"), ("6-31g", "C"),
                        ("cc-pvdz", "O"), ("def2-svp", "O"))
         @testset "$name / $el" begin
             bs = BasisSet(name, "$el 0.0 0.0 0.0")
-            orb = _orbitals_from_basisset(bs)
+            orb = gaussian_orbitals(bs)
+            Z = Int(only(bs.atoms).Z)
 
-            # structural: one (2l+1)-fold orbital block per shell
-            @test length(orb) == bs.nbas
-            @test length(orb) == sum(2 * s.l + 1 for s in bs.basis)
+            @test AOK.nspecies(orb.Rnl) == 1
+            @test length(orb) == bs.nbas == sum(2 * s.l + 1 for s in bs.basis)
 
-            # --- A. values match the GaussianBasis-defined AO (machine precision) ---
+            # A. values match the GaussianBasis-defined AO (positions → species 1)
             X = [ @SVector randn(3) for _ = 1:12 ]
-            ref = _gb_reference(bs, X)
-            P = evaluate(orb, X)
-            @test all(isfinite, P)
-            @test P ≈ ref atol = 1e-10
+            ref = _gb_ref(orb, bs, X, fill(Z, length(X)))
+            @test all(isfinite, evaluate(orb, X))
+            @test evaluate(orb, X) ≈ ref atol = 1e-10
             @test evaluate_ref(orb, X) ≈ ref atol = 1e-10
-            Ped, _ = evaluate_ed(orb, X)
-            @test Ped ≈ ref atol = 1e-10
+            @test evaluate_ed(orb, X)[1] ≈ ref atol = 1e-10
 
             # Float32 conversion + evaluation path
-            orb32 = _orbitals_from_basisset(bs; T = Float32)
-            X32 = [ SVector{3, Float32}(x) for x in X ]
-            P32 = evaluate(orb32, X32)
+            orb32 = gaussian_orbitals(bs; T = Float32)
+            P32 = evaluate(orb32, [ SVector{3, Float32}(x) for x in X ])
             @test eltype(P32) == Float32
             @test P32 ≈ ref atol = 1e-4
 
-            # --- B. overlap cross-check against GaussianBasis's libcint `overlap` ---
-            # both reflect the same (possibly non-unit, e.g. def2-svp) normalization;
-            # sorted eigenvalues are independent of the libcint-vs-SpheriCart m-order.
+            # B. overlap vs GaussianBasis's libcint `overlap`, order-independent
             ev_gb = sort(eigvals(Symmetric(overlap(bs))))
             ev_an = sort(eigvals(Symmetric(_analytic_overlap(orb))))
             @test ev_an ≈ ev_gb rtol = 1e-6
         end
     end
+end
+
+@testset "multi element" begin
+    # cc-pvdz C, N, O all have the same 3s2p1d structure → one shared spec, no padding
+    bs = BasisSet("cc-pvdz", "C 0.0 0.0 0.0\nN 0.0 0.0 1.0\nO 0.0 1.0 0.0")
+    orb = gaussian_orbitals(bs)
+    @test AOK.nspecies(orb.Rnl) == 3
+    @test orb.Rnl.zlist == (ChemicalSpecies(6), ChemicalSpecies(7), ChemicalSpecies(8))
+    @test length(orb) == 14                     # 3s + 2p·3 + 1d·5
+
+    species = (ChemicalSpecies(6), ChemicalSpecies(7), ChemicalSpecies(8))
+    Xp = [ PState(𝐫 = (@SVector randn(3)), S = rand(species)) for _ = 1:15 ]
+    ref = _gb_ref(orb, bs, [x.𝐫 for x in Xp], [atomic_number(x.S) for x in Xp])
+    @test evaluate(orb, Xp) ≈ ref atol = 1e-10
+    @test evaluate_ref(orb, Xp) ≈ ref atol = 1e-10
+    @test evaluate_ed(orb, Xp)[1] ≈ ref atol = 1e-10
+
+    # padding: H (2s1p) + C (3s2p1d) → shared 3s2p1d; H pads the 3rd s, 2nd p, and d
+    bs2 = BasisSet("cc-pvdz", "H 0.0 0.0 0.0\nC 0.0 0.0 1.0")
+    orb2 = gaussian_orbitals(bs2)
+    @test AOK.nspecies(orb2.Rnl) == 2
+    @test length(orb2) == 14
+    Xh = [ PState(𝐫 = (@SVector randn(3)), S = ChemicalSpecies(1)) for _ = 1:8 ]
+    Ph = evaluate(orb2, Xh)
+    @test Ph ≈ _gb_ref(orb2, bs2, [x.𝐫 for x in Xh], fill(1, length(Xh))) atol = 1e-10
+    # H lacks the 3rd s, 2nd p, and d shells → those orbital columns are exactly 0
+    Hpad = [ c for (c, p) in enumerate(orb2.spec)
+             if (p.l == 0 && p.n == 3) || (p.l == 1 && p.n == 2) || p.l == 2 ]
+    @test all(iszero, Ph[:, Hpad])
+    @test !all(iszero, Ph[:, setdiff(1:length(orb2), Hpad)])   # the rest are populated
+
+    # an element may appear at most once
+    @test_throws ErrorException gaussian_orbitals(BasisSet("sto-3g", "H 0 0 0\nH 0 0 1"))
 end
