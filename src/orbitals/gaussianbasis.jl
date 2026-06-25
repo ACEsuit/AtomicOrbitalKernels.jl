@@ -60,3 +60,34 @@ function gaussian_orbitals(bs::BasisSet; T = Float64)
     radial = GaussianTypeRadials(ζ, D, spec, nnspec, zlist)
     return AtomicOrbitals(radial, _default_ylm(Lmax))
 end
+
+# normalize an element label to an AtomsBase `ChemicalSpecies`. AtomsBase already
+# constructs one from an atomic number, a `Symbol`, or a `ChemicalSpecies`; a
+# string goes through its `Symbol`.
+_species(el) = ChemicalSpecies(el)
+_species(el::AbstractString) = ChemicalSpecies(Symbol(el))
+
+# Convenience: build the basis from a basis-set name and a list of `elements`
+# (each an atomic number, symbol, string, or `ChemicalSpecies`); the same named
+# set is loaded for every element via GaussianBasis. Orbitals are centre-free, so
+# the (well-separated) placeholder positions are irrelevant.
+function gaussian_orbitals(basisname::AbstractString, elements; T = Float64)
+    species = [ _species(el) for el in elements ]
+    isempty(species) && error("`elements` is empty")
+    geom = join(("$(string(sp)) 0.0 0.0 $(2.0 * (i - 1))"
+                 for (i, sp) in enumerate(species)), "\n")
+    return gaussian_orbitals(BasisSet(basisname, geom); T = T)
+end
+
+# Convenience: a per-element mix of named basis sets, given as `element => name`
+# pairs (e.g. `[:C => "cc-pvdz", :H => "sto-3g"]`). GaussianBasis applies one name
+# per call, so we load each element separately and merge the shells.
+function gaussian_orbitals(pairs::AbstractVector{<:Pair}; T = Float64)
+    isempty(pairs) && error("the `element => basis` list is empty")
+    subs = [ BasisSet(string(name),
+                      "$(string(_species(el))) 0.0 0.0 $(2.0 * (i - 1))")
+             for (i, (el, name)) in enumerate(pairs) ]
+    atoms = reduce(vcat, (s.atoms for s in subs))
+    basis = reduce(vcat, (s.basis for s in subs))
+    return gaussian_orbitals(BasisSet("mixed", atoms, basis); T = T)
+end

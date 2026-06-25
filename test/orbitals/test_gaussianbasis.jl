@@ -131,3 +131,48 @@ end
     # an element may appear at most once
     @test_throws ErrorException gaussian_orbitals(BasisSet("sto-3g", "H 0 0 0\nH 0 0 1"))
 end
+
+@testset "convenience constructors" begin
+    # (i) gaussian_orbitals(name, elements): same named set for every element.
+    # Must match the explicit BasisSet path (positions are ignored by the converter).
+    orbA = gaussian_orbitals("cc-pvdz", [:C, :N, :O])
+    orbB = gaussian_orbitals(BasisSet("cc-pvdz", "C 0 0 0\nN 0 0 2\nO 0 0 4"))
+    @test orbA.Rnl.zlist == orbB.Rnl.zlist
+    @test orbA.spec == orbB.spec
+    @test Array(orbA.Rnl.ζ) ≈ Array(orbB.Rnl.ζ)
+    @test Array(orbA.Rnl.D) ≈ Array(orbB.Rnl.D)
+
+    # element labels accepted as Int / Symbol / String / ChemicalSpecies
+    want = (ChemicalSpecies(6), ChemicalSpecies(7), ChemicalSpecies(8))
+    for els in ([6, 7, 8], [:C, :N, :O], ["C", "N", "O"], collect(want))
+        @test gaussian_orbitals("cc-pvdz", els).Rnl.zlist == want
+    end
+
+    # duplicate element / empty list are errors
+    @test_throws ErrorException gaussian_orbitals("sto-3g", [:H, :H])
+    @test_throws ErrorException gaussian_orbitals("sto-3g", Symbol[])
+
+    # (ii) per-element mix of named sets: cc-pvdz on C, sto-3g on H
+    orbM = gaussian_orbitals([:C => "cc-pvdz", "H" => "sto-3g"])
+    @test orbM.Rnl.zlist == (ChemicalSpecies(6), ChemicalSpecies(1))
+    @test AOK.nspecies(orbM.Rnl) == 2
+
+    X = [ @SVector randn(3) for _ = 1:8 ]
+    # C-tagged points reproduce the cc-pvdz C-only orbital exactly (shared spec
+    # equals C's own 3s2p1d, so columns line up)
+    orbC = gaussian_orbitals(BasisSet("cc-pvdz", "C 0 0 0"))
+    @test orbM.spec == orbC.spec
+    Xc = [ PState(𝐫 = x, S = ChemicalSpecies(6)) for x in X ]
+    @test evaluate(orbM, Xc) ≈ evaluate(orbC, X) atol = 1e-10
+
+    # H-tagged points: only the 1s column is populated (sto-3g H is 1s), and it
+    # matches the sto-3g H-only orbital; every padded column is exactly 0
+    orbH = gaussian_orbitals(BasisSet("sto-3g", "H 0 0 0"))
+    Xh = [ PState(𝐫 = x, S = ChemicalSpecies(1)) for x in X ]
+    Ph = evaluate(orbM, Xh)
+    c1s = findfirst(p -> p.l == 0 && p.n == 1, orbM.spec)
+    @test Ph[:, c1s] ≈ evaluate(orbH, X)[:, 1] atol = 1e-10
+    @test all(iszero, Ph[:, setdiff(1:length(orbM), c1s)])
+
+    @test_throws ErrorException gaussian_orbitals(Pair{Symbol, String}[])
+end
