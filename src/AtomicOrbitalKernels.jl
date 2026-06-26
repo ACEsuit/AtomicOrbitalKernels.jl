@@ -26,7 +26,7 @@ using Unitful
 # kernels themselves are GaussianBasis-free — if you ever need to ship a
 # lightweight inference-only build, the obvious refactor is to move
 # `compile_basis(::BasisSet)` into a `GaussianBasisExt` package extension.
-using GaussianBasis: BasisSet
+using GaussianBasis: BasisSet, SphericalShell
 
 # --- Atomic-orbital evaluation (moved from Polynomials4ML.AtomicOrbitals,
 # v0.6.1, and restructured to a generic Rnl·Ylm form). Built on the P4ML
@@ -49,6 +49,9 @@ using Random: AbstractRNG
 # `x.S`) and its tangent type `VState`; a core dependency for now (an extension is
 # a later option).
 using DecoratedParticles: PState, VState
+# AtomsBase supplies the canonical chemical-element type `ChemicalSpecies` used as
+# species labels by the GaussianBasis loader (multi-element bases).
+using AtomsBase: ChemicalSpecies
 
 const ang2bohr = 1.8897261246257702
 
@@ -62,6 +65,7 @@ include("utils.jl")
 include("orbitals/gtostoradials.jl")
 include("orbitals/atomicorbitals.jl")
 include("orbitals/utils.jl")
+include("orbitals/gaussianbasis.jl")
 
 export compile_basis, adapt_basis,
        batch_overlap!, batch_overlap,

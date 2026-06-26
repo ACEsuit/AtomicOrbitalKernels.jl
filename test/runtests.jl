@@ -27,6 +27,10 @@ const _SKIP_GPU = Base.JLOptions().check_bounds == 1 && gpu_backend != "CPU"
         include("orbitals/test_orbitals.jl")
     end
 
+    @testset "GaussianBasis conversion + eval" begin
+        include("orbitals/test_gaussianbasis.jl")
+    end
+
     @testset "Atomic orbitals ($gpu_backend)" begin
         include("orbitals/test_gpu.jl")
     end
