@@ -1,17 +1,37 @@
-# Build an `AtomicOrbitals` basis from a (spherical) `GaussianBasis.BasisSet`.
-#
-# Each chemical ELEMENT in the basis set becomes one species of the resulting
-# species-indexed radial: the element's shells fill that species' `(ζ,D)` slice of
-# a SHARED `(n,l)` spec — the union over all elements, zero-padded where an element
-# lacks a shell. Coefficients are taken verbatim (GaussianBasis already L2-normalizes
-# spherical shells, and SpheriCart `SolidHarmonics` are L2-normalized too, so the AO
-# values match with no extra constant); `poly = 0` since the `r^l` lives in the solid
-# harmonic. Species labels are AtomsBase `ChemicalSpecies`. An element may appear at
-# most once (one atom per element) — otherwise this errors.
-#
-# Orbitals are centre-free: the `BasisSet` atom positions are ignored (only the
-# elements and shells are used); evaluate the result at coordinates relative to an
-# atom, tagging each input with that atom's species.
+"""
+    gaussian_orbitals(bs::GaussianBasis.BasisSet; T = Float64)
+    gaussian_orbitals(basisname, elements; T = Float64)
+    gaussian_orbitals(pairs; T = Float64)              # pairs :: [el => name, …]
+
+Build an `AtomicOrbitals` basis from Gaussian basis-set data.
+
+Each chemical **element** becomes one species of the species-indexed radial: its
+shells fill that species' `(ζ,D)` slice of a shared `(n,l)` spec — the union over
+all elements, zero-padded where an element lacks a shell. Coefficients are taken
+verbatim; GaussianBasis L2-normalizes spherical shells and SpheriCart's solid
+harmonics are L2-normalized too, so the AO values need no extra constant (`poly =
+0`, as the `r^l` lives in the solid harmonic). An element may appear at most once;
+only spherical basis sets are supported.
+
+The basis is **centre-free**: atom positions in the basis set are ignored. Evaluate
+at coordinates relative to an atom, tagging each input `PState` with that atom's
+`ChemicalSpecies`.
+
+# Forms
+- `bs::BasisSet` — convert an existing GaussianBasis basis set.
+- `basisname, elements` — load `basisname` for every element in `elements`; each
+  element is an atomic number, `Symbol`, `String`, or `ChemicalSpecies`.
+- `pairs` — a per-element mix of named sets, e.g. `[:C => "cc-pvdz", :H => "sto-3g"]`.
+
+`T` sets the element type of the stored `(ζ,D)` parameters.
+
+# Examples
+```julia
+gaussian_orbitals(BasisSet("cc-pvdz", "C 0 0 0"))
+gaussian_orbitals("cc-pvdz", [:C, :N, :O])
+gaussian_orbitals([:C => "cc-pvdz", "H" => "sto-3g"])
+```
+"""
 function gaussian_orbitals(bs::BasisSet; T = Float64)
     shells = bs.basis
     isempty(shells) && error("the basis set has no shells")
@@ -67,10 +87,7 @@ end
 _species(el) = ChemicalSpecies(el)
 _species(el::AbstractString) = ChemicalSpecies(Symbol(el))
 
-# Convenience: build the basis from a basis-set name and a list of `elements`
-# (each an atomic number, symbol, string, or `ChemicalSpecies`); the same named
-# set is loaded for every element via GaussianBasis. Orbitals are centre-free, so
-# the (well-separated) placeholder positions are irrelevant.
+# one named set loaded for every element; positions are placeholders (centre-free)
 function gaussian_orbitals(basisname::AbstractString, elements; T = Float64)
     species = [ _species(el) for el in elements ]
     isempty(species) && error("`elements` is empty")
@@ -79,9 +96,8 @@ function gaussian_orbitals(basisname::AbstractString, elements; T = Float64)
     return gaussian_orbitals(BasisSet(basisname, geom); T = T)
 end
 
-# Convenience: a per-element mix of named basis sets, given as `element => name`
-# pairs (e.g. `[:C => "cc-pvdz", :H => "sto-3g"]`). GaussianBasis applies one name
-# per call, so we load each element separately and merge the shells.
+# per-element mix: GaussianBasis applies one name per `BasisSet` call, so load each
+# element separately and merge the shells.
 function gaussian_orbitals(pairs::AbstractVector{<:Pair}; T = Float64)
     isempty(pairs) && error("the `element => basis` list is empty")
     subs = [ BasisSet(string(name),
