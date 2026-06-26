@@ -55,12 +55,12 @@ using AtomsBase: ChemicalSpecies
 
 const ang2bohr = 1.8897261246257702
 
-include("units.jl")
-include("compiled_basis.jl")
-include("adapt.jl")
-include("kernels_2c.jl")
-include("kernels_3c.jl")
-include("reference/Reference.jl")
+include("integrals/units.jl")
+include("integrals/compiled_basis.jl")
+include("integrals/adapt.jl")
+include("integrals/kernels_2c.jl")
+include("integrals/kernels_3c.jl")
+include("integrals/reference/Reference.jl")
 include("utils.jl")
 include("orbitals/gtostoradials.jl")
 include("orbitals/atomicorbitals.jl")

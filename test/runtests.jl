@@ -17,10 +17,10 @@ const _SKIP_GPU = Base.JLOptions().check_bounds == 1 && gpu_backend != "CPU"
 
 @testset "AtomicOrbitalKernels.jl" begin
     @testset "Units" begin
-        include("test_units.jl")
+        include("integrals/test_units.jl")
     end
     @testset "Reference (scalar)" begin
-        include("test_reference.jl")
+        include("integrals/test_reference.jl")
     end
 
     @testset "Atomic orbitals (eval)" begin
@@ -36,22 +36,22 @@ const _SKIP_GPU = Base.JLOptions().check_bounds == 1 && gpu_backend != "CPU"
     end
 
     @testset "compile_basis / adapt_basis" begin
-        include("test_compile.jl")
+        include("integrals/test_compile.jl")
     end
 
     @testset "2-center overlap" begin
-        include("test_overlap_2c.jl")
+        include("integrals/test_overlap_2c.jl")
     end
 
     @testset "3-center overlap" begin
-        include("test_overlap_3c.jl")
+        include("integrals/test_overlap_3c.jl")
     end
 
     @testset "2C/3C overlap ($gpu_backend)" begin
         if _SKIP_GPU
             @test_skip nothing
         else
-            include("test_gpu.jl")
+            include("integrals/test_gpu.jl")
         end
     end
 end
