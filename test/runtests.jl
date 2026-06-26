@@ -39,6 +39,10 @@ const _SKIP_GPU = Base.JLOptions().check_bounds == 1 && gpu_backend != "CPU"
         include("integrals/test_compile.jl")
     end
 
+    @testset "AtomicOrbitals → Cartesian compile" begin
+        include("integrals/test_compile_orbitals.jl")
+    end
+
     @testset "2-center overlap" begin
         include("integrals/test_overlap_2c.jl")
     end
