@@ -130,64 +130,79 @@
     end
 end
 
-# species indices for the batch: default to species 1 (single-species use), else
-# a length-B vector of indices into `basis.zlist`.
-_orbital_sidx(::Nothing, B) = ones(Int, B)
-_orbital_sidx(s::AbstractVector{<:Integer}, B) =
-        (length(s) == B || error("species index vector must have length B=$B");
-         collect(Int, s))
+# Input is a vector of DecoratedParticles `PState`s, mirroring the orbital
+# evaluation API (`evaluate(::AtomicOrbitals, X)`): each point carries a position
+# `x.𝐫` (a plain `SVector{3}`, in atomic units / Bohr — no `Unitful` conversion,
+# unlike the GaussianBasis-path `CompiledBasis`) and a species `x.S`.
+
+# (3, B) position matrix in `FT` from the PState positions.
+function _cob_posmat(X::AbstractVector{<:PState}, ::Type{FT}) where {FT}
+    P = Matrix{FT}(undef, 3, length(X))
+    @inbounds for i in eachindex(X)
+        r = _position(X[i])
+        P[1, i] = FT(r[1]); P[2, i] = FT(r[2]); P[3, i] = FT(r[3])
+    end
+    return P
+end
+
+# species label → species-axis index σ ∈ 1:NZ via `basis.zlist`.
+function _cob_species_index(basis::CompiledOrbitalBasis, s)
+    σ = findfirst(==(s), basis.zlist)
+    σ === nothing &&
+        error("species $(s) not in basis species list $(basis.zlist)")
+    return σ
+end
+
+# species indices for an input batch, from each `x.S`.
+_cob_sidx(basis::CompiledOrbitalBasis, X::AbstractVector{<:PState}) =
+        Int[ _cob_species_index(basis, x.S) for x in X ]
 
 """
-    batch_overlap!(out, basis::CompiledOrbitalBasis, posA, posB;
-                   sidxA=nothing, sidxB=nothing, backend=KA.get_backend(out)) -> out
+    batch_overlap!(out, basis::CompiledOrbitalBasis, XA, XB;
+                   backend=KA.get_backend(out)) -> out
 
 Batched 2-center Cartesian-Gaussian overlap for a species-aware
-[`CompiledOrbitalBasis`](@ref). For each batch element `b`, the bra basis uses
-species `sidxA[b]` centered at `posA[:, b]` and the ket basis uses species
-`sidxB[b]` at `posB[:, b]`. `sidxA`/`sidxB` default to species 1 (single-species
-use). Positions are `(3, B)` `Unitful.Length` matrices; `out` is
+[`CompiledOrbitalBasis`](@ref). `XA`/`XB` are length-`B` vectors of
+`DecoratedParticles` `PState`s; each carries a position (`x.𝐫`, atomic units /
+Bohr) and a species (`x.S`). For batch element `b`, the bra basis uses `XA[b]`'s
+species at `XA[b]`'s position and the ket basis uses `XB[b]`. `out` is
 `(nbf_total, nbf_total, B)` and sets the kernel precision.
 """
 function batch_overlap!(out, basis::CompiledOrbitalBasis,
-                        posA::AbstractMatrix{<:Unitful.Length},
-                        posB::AbstractMatrix{<:Unitful.Length};
-                        sidxA = nothing, sidxB = nothing,
+                        XA::AbstractVector{<:PState},
+                        XB::AbstractVector{<:PState};
                         backend = KA.get_backend(out))
     FT = eltype(out)
-    B = size(posA, 2)
+    B = length(XA)
+    length(XB) == B ||
+        error("XA and XB must have equal length; got $(length(XA)) and $(length(XB))")
     ArrayCtor = typeof(out).name.wrapper
-    posA_d = ArrayCtor(to_bohr(posA, FT))
-    posB_d = ArrayCtor(to_bohr(posB, FT))
+    posA_d = ArrayCtor(_cob_posmat(XA, FT))
+    posB_d = ArrayCtor(_cob_posmat(XB, FT))
     coef_d = ArrayCtor(FT.(basis.coef))
     α_d    = ArrayCtor(FT.(basis.ζ))
-    sA = ArrayCtor(_orbital_sidx(sidxA, B))
-    sB = ArrayCtor(_orbital_sidx(sidxB, B))
+    sA_d   = ArrayCtor(_cob_sidx(basis, XA))
+    sB_d   = ArrayCtor(_cob_sidx(basis, XB))
     fill!(out, zero(FT))
     kernel! = batch_S_orbital_kernel!(backend)
-    kernel!(out, basis.ls, basis.nbf, basis.basis_offset, coef_d, α_d, sA, sB,
+    kernel!(out, basis.ls, basis.nbf, basis.basis_offset, coef_d, α_d, sA_d, sB_d,
             posA_d, posB_d, Val(basis.Lmax);
             ndrange = (B, basis.nshells, basis.nshells))
     KA.synchronize(backend)
     return out
 end
 
-batch_overlap!(out, basis::CompiledOrbitalBasis,
-               posA::AbstractMatrix, posB::AbstractMatrix; kwargs...) =
-    throw(ArgumentError(_UNITFUL_HINT))
-
 """
-    batch_overlap(basis::CompiledOrbitalBasis, posA, posB;
-                  sidxA=nothing, sidxB=nothing, FT=Float64) -> Array{FT,3}
+    batch_overlap(basis::CompiledOrbitalBasis, XA, XB; FT=Float64) -> Array{FT,3}
 
 Non-mutating wrapper that allocates the `(nbf_total, nbf_total, B)` output on the
-CPU and fills it via [`batch_overlap!`](@ref).
+CPU and fills it via [`batch_overlap!`](@ref). `XA`/`XB` are vectors of `PState`s.
 """
 function batch_overlap(basis::CompiledOrbitalBasis,
-                       posA::AbstractMatrix{<:Unitful.Length},
-                       posB::AbstractMatrix{<:Unitful.Length};
-                       sidxA = nothing, sidxB = nothing, FT::Type = Float64)
-    B = size(posA, 2)
+                       XA::AbstractVector{<:PState},
+                       XB::AbstractVector{<:PState};
+                       FT::Type = Float64)
     N = basis.nbf_total
-    out = zeros(FT, N, N, B)
-    return batch_overlap!(out, basis, posA, posB; sidxA = sidxA, sidxB = sidxB)
+    out = zeros(FT, N, N, length(XA))
+    return batch_overlap!(out, basis, XA, XB)
 end
