@@ -12,16 +12,19 @@
 #
 # The orbital radial spec is l-ascending while GaussianBasis shell order can
 # interleave l (e.g. 6-31g = s,s,p,s,p), so the two paths give the same overlap
-# operator up to a basis-function permutation P (`S_A = P S_B Pᵀ`). Singular
-# values are invariant under that (and equal the eigenvalues for the symmetric,
-# PSD self-overlap), so we compare sorted `svdvals` — order-independent.
+# operator up to a basis-function permutation P (`S_A = P S_B Pᵀ`). We recover P
+# by matching shells on (l, exponents) — within a shell the Cartesian component
+# order is identical, since both paths run the same contraction kernel — and check
+# the overlaps agree *elementwise* under P. That is strictly stronger than matching
+# singular values, which only certify unitary equivalence (`S_A = U S_B V`), not a
+# permutation, so a wrong coefficient or a mis-assigned shell could slip through.
 
 using AtomicOrbitalKernels
 import AtomicOrbitalKernels as AOK
 using GaussianBasis: BasisSet
 using AtomsBase: ChemicalSpecies
 using DecoratedParticles: PState
-using StaticArrays, LinearAlgebra, Random, Unitful, Test
+using StaticArrays, Random, Unitful, Test
 
 # Bohr positions → vector of PStates (orbital path); same points → Unitful Å
 # matrix (GaussianBasis path).
@@ -31,6 +34,48 @@ _pstates(rawB, sp; T = Float64) =
 _unitful(rawB) = (rawB ./ AOK.ang2bohr) .* u"angstrom"
 _rawB(rng, B; offset = (0.0, 0.0, 0.0), scale = 0.9) =
         (randn(rng, 3, B) .* scale) .+ collect(offset)
+
+# --- structural comparison: orbital path `cob::CartesianGTOBasis` (species 1)
+# vs GaussianBasis path `bcc::CompiledBasis`. A cob shell's real primitives are
+# the slots with nonzero coef (the rest are species padding). ---
+_cob_real(cob, k)  = findall(!iszero, view(cob.coef, k, :, 1))
+_cob_exps(cob, k)  = cob.ζ[k, _cob_real(cob, k), 1]
+_cob_coef(cob, k)  = cob.coef[k, _cob_real(cob, k), 1]
+_bcc_rng(bcc, j)   = bcc.prim_offset[j]+1 : bcc.prim_offset[j]+bcc.nprim[j]
+_bcc_exps(bcc, j)  = bcc.α[_bcc_rng(bcc, j)]
+_bcc_coef(bcc, j)  = bcc.coef[_bcc_rng(bcc, j)]
+
+# Basis-function permutation P (`P[i]` = GB-path index of orbital-path bf `i`):
+# match shells on (l, sorted exponents); within a shell the component order is
+# identical (same contraction kernel). Returns (P, shell map σ). Errors if a shell
+# can't be matched — i.e. the two bases are NOT permutation-equivalent.
+function _bfn_perm(cob, bcc)
+    @assert cob.nshells == bcc.nshells
+    used = falses(bcc.nshells);  σ = zeros(Int, cob.nshells)
+    for k in 1:cob.nshells
+        ek = sort(_cob_exps(cob, k))
+        j = findfirst(jj -> !used[jj] && bcc.ls[jj] == cob.ls[k] &&
+                            length(_bcc_exps(bcc, jj)) == length(ek) &&
+                            sort(_bcc_exps(bcc, jj)) ≈ ek, 1:bcc.nshells)
+        j === nothing &&
+            error("orbital shell $k (l=$(cob.ls[k])) has no GaussianBasis match")
+        used[j] = true;  σ[k] = j
+    end
+    P = Int[]
+    for k in 1:cob.nshells, c in 1:cob.nbf[k]
+        push!(P, bcc.basis_offset[σ[k]] + c)
+    end
+    return P, σ
+end
+
+# matched shells must carry the same (exp, coef) primitives (sorted by exponent)
+function _assert_shells_match(cob, bcc, σ)
+    for k in 1:cob.nshells
+        pc = sortperm(_cob_exps(cob, k));  pg = sortperm(_bcc_exps(bcc, σ[k]))
+        @test _cob_exps(cob, k)[pc] ≈ _bcc_exps(bcc, σ[k])[pg]
+        @test _cob_coef(cob, k)[pc] ≈ _bcc_coef(bcc, σ[k])[pg]
+    end
+end
 
 @testset "AtomicOrbitals → Cartesian vs GaussianBasis Cartesian" begin
     for (name, el, Z) in (("sto-3g", "H", 1), ("6-31g", "C", 6), ("cc-pvdz", "O", 8),
@@ -50,20 +95,26 @@ _rawB(rng, B; offset = (0.0, 0.0, 0.0), scale = 0.9) =
             # flow back through the differentiable compile map, not a stored D
             @test Array(cob.ζ) == Array(orb.Rnl.ζ)
 
+            # recover the permutation and confirm the two bases are the same
+            # shells reordered (errors here if they are not permutation-equivalent)
+            P, σ = _bfn_perm(cob, bcc)
+            _assert_shells_match(cob, bcc, σ)
+
             rng = MersenneTwister(0xACE)
             rA = _rawB(rng, 4)
             rB = _rawB(rng, 4; offset = (3.0, 0.0, 0.0))
             SA = batch_overlap(cob, _pstates(rA, sp), _pstates(rB, sp))
             SB = batch_overlap(bcc, _unitful(rA), _unitful(rB))
             @test all(isfinite, SA)
-            for b in 1:size(SA, 3)           # off-diagonal (A≠B): singular values
-                @test sort(svdvals(SA[:, :, b])) ≈ sort(svdvals(SB[:, :, b])) atol = 1e-10
+            # off-diagonal (A≠B): overlaps agree elementwise under P (S_A = P S_B Pᵀ)
+            for b in 1:size(SA, 3)
+                @test SA[:, :, b] ≈ SB[P, P, b] atol = 1e-10
             end
 
-            o = zeros(3, 1)                  # self-overlap (A=B): PSD ⇒ svd = eig
+            o = zeros(3, 1)                  # self-overlap (A=B)
             selc = batch_overlap(cob, _pstates(o, sp), _pstates(o, sp))[:, :, 1]
             selg = batch_overlap(bcc, _unitful(o), _unitful(o))[:, :, 1]
-            @test sort(svdvals(selc)) ≈ sort(svdvals(selg)) atol = 1e-10
+            @test selc ≈ selg[P, P] atol = 1e-10
         end
     end
 end
@@ -81,9 +132,8 @@ end
     cob64 = compile_basis(gaussian_orbitals(BasisSet("cc-pvdz", "O 0.0 0.0 0.0")))
     S64 = batch_overlap(cob64, _pstates(rA, sp), _pstates(rB, sp))
     @test eltype(S32) == Float32
-    for b in 1:size(S32, 3)
-        @test sort(svdvals(S32[:, :, b])) ≈ sort(svdvals(S64[:, :, b])) atol = 1e-4
-    end
+    # same orbital spec ordering in both → compare elementwise
+    @test maximum(abs, S32 - S64) < 1e-4
 end
 
 @testset "batch_overlap from orbital basis (compile-on-call)" begin
@@ -112,13 +162,12 @@ end
     rA = _rawB(rng, 4);  rB = _rawB(rng, 4; offset = (3.0, 0.0, 0.0))
 
     # each species slice reproduces that element's single-element converter
+    # exactly (same l-ascending spec → same ordering), so compare elementwise
     for (sp, el) in zip(sps, ("C", "N", "O"))
         single = compile_basis(gaussian_orbitals(BasisSet("cc-pvdz", "$el 0.0 0.0 0.0")))
         Sm = batch_overlap(cob,    _pstates(rA, sp), _pstates(rB, sp))
         Ss = batch_overlap(single, _pstates(rA, sp), _pstates(rB, sp))
-        for b in 1:size(Sm, 3)
-            @test sort(svdvals(Sm[:, :, b])) ≈ sort(svdvals(Ss[:, :, b])) atol = 1e-10
-        end
+        @test Sm ≈ Ss atol = 1e-10
     end
 
     # mixed species pair (C bra, O ket) runs, finite, right shape
