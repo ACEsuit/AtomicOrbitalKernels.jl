@@ -82,6 +82,43 @@ function _cart_normsq(D::AbstractVector, ζ::AbstractVector, l::Integer)
     return (df / R(2)^l) * s
 end
 
+# Param-independent shell structure of a Gaussian orbital basis (shared across
+# species). Split out of `compile_basis` so the differentiable overlap can reuse
+# it without recomputing `coef` (see `overlap_2c_grad.jl`).
+function _compile_struct(orb::GaussianTypeOrbitals)
+    rad  = orb.Rnl
+    spec = rad.spec
+    nshells, K, NZ = size(rad.ζ)
+    @assert nshells == length(spec)
+    ls   = collect(Int, (s.l for s in spec))
+    Lmax = maximum(ls)
+    nbf  = Int[ (l + 1) * (l + 2) ÷ 2 for l in ls ]
+    basis_offset = Vector{Int}(undef, nshells + 1)
+    basis_offset[1] = 0
+    for i in 1:nshells
+        basis_offset[i+1] = basis_offset[i] + nbf[i]
+    end
+    return (Lmax = Lmax, nshells = nshells, K = K, NZ = NZ, ls = ls, nbf = nbf,
+            basis_offset = basis_offset, nbf_total = basis_offset[end],
+            zlist = rad.zlist)
+end
+
+# Differentiable spherical→Cartesian coefficient map: `coef = D/√normsq` per
+# shell/species (the exponents are unchanged). Pure and AD-friendly (works in the
+# promoted float type, e.g. `ForwardDiff.Dual`); its analytic pullback is
+# `_compile_coef_pb` in `overlap_2c_grad.jl`.
+function _compile_coef(ζ, D, ls)
+    nshells, K, NZ = size(ζ)
+    T = float(promote_type(eltype(ζ), eltype(D)))
+    coef = zeros(T, nshells, K, NZ)
+    for σ in 1:NZ, k in 1:nshells
+        Dk = @view D[k, :, σ]
+        ns = _cart_normsq(Dk, (@view ζ[k, :, σ]), ls[k])
+        ns > 0 && (@views coef[k, :, σ] .= Dk ./ sqrt(T(ns)))
+    end
+    return coef
+end
+
 """
     compile_basis(orb::AtomicOrbitals) -> CartesianGTOBasis
 
@@ -99,33 +136,13 @@ Only Gaussian-type orbital bases are supported (Slater radials carry a radial
 power the overlap kernels do not integrate).
 """
 function compile_basis(orb::GaussianTypeOrbitals)
-    rad  = orb.Rnl
-    spec = rad.spec
-    ζin  = Array(rad.ζ)
-    Din  = Array(rad.D)
-    T    = promote_type(eltype(ζin), eltype(Din))
-    nshells, K, NZ = size(ζin)
-    @assert nshells == length(spec)
-
-    ls   = collect(Int, (s.l for s in spec))
-    Lmax = maximum(ls)
-    nbf  = Int[ (l + 1) * (l + 2) ÷ 2 for l in ls ]
-    basis_offset = Vector{Int}(undef, nshells + 1)
-    basis_offset[1] = 0
-    for i in 1:nshells
-        basis_offset[i+1] = basis_offset[i] + nbf[i]
-    end
-
-    coef = zeros(T, nshells, K, NZ)
-    for σ in 1:NZ, k in 1:nshells
-        Dk = @view Din[k, :, σ]
-        ns = _cart_normsq(Dk, (@view ζin[k, :, σ]), ls[k])
-        ns > 0 && (@views coef[k, :, σ] .= Dk ./ sqrt(T(ns)))
-    end
-
-    return CartesianGTOBasis{T, Vector{Int}, Array{T,3}, NZ, eltype(rad.zlist)}(
-        Lmax, nshells, K, ls, nbf, basis_offset, basis_offset[end],
-        ζin, coef, rad.zlist, T(orb.lengthscale))
+    str  = _compile_struct(orb)
+    ζin  = Array(orb.Rnl.ζ)
+    coef = _compile_coef(ζin, Array(orb.Rnl.D), str.ls)
+    T    = promote_type(eltype(ζin), eltype(coef))
+    return CartesianGTOBasis{T, Vector{Int}, Array{T,3}, str.NZ, eltype(str.zlist)}(
+        str.Lmax, str.nshells, str.K, str.ls, str.nbf, str.basis_offset,
+        str.nbf_total, T.(ζin), T.(coef), str.zlist, T(orb.lengthscale))
 end
 
 compile_basis(::SlaterTypeOrbitals) =
