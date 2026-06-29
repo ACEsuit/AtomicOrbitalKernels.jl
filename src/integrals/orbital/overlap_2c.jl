@@ -163,8 +163,8 @@ _cgto_sidx(basis::CartesianGTOBasis, X::AbstractVector{<:PState}) =
 
 Batched 2-center Cartesian-Gaussian overlap for a species-aware
 [`CartesianGTOBasis`](@ref). `XA`/`XB` are length-`B` vectors of
-`DecoratedParticles` `PState`s; each carries a position (`x.𝐫`, atomic units /
-Bohr) and a species (`x.S`). For batch element `b`, the bra basis uses `XA[b]`'s
+`DecoratedParticles` `PState`s; each carries a position (`x.𝐫`, in the basis's
+`length_unit`) and a species (`x.S`). For batch element `b`, the bra basis uses `XA[b]`'s
 species at `XA[b]`'s position and the ket basis uses `XB[b]`. `out` is
 `(nbf_total, nbf_total, B)` and sets the kernel precision.
 """
@@ -177,8 +177,12 @@ function batch_overlap!(out, basis::CartesianGTOBasis,
     length(XB) == B ||
         error("XA and XB must have equal length; got $(length(XA)) and $(length(XB))")
     ArrayCtor = typeof(out).name.wrapper
-    posA_d = ArrayCtor(_cgto_posmat(XA, FT))
-    posB_d = ArrayCtor(_cgto_posmat(XB, FT))
+    # scale input positions into the native (Bohr) frame of the parameters
+    s = FT(basis.lengthscale)
+    posA = _cgto_posmat(XA, FT);  s == one(s) || (posA .*= s)
+    posB = _cgto_posmat(XB, FT);  s == one(s) || (posB .*= s)
+    posA_d = ArrayCtor(posA)
+    posB_d = ArrayCtor(posB)
     coef_d = ArrayCtor(FT.(basis.coef))
     α_d    = ArrayCtor(FT.(basis.ζ))
     sA_d   = ArrayCtor(_cgto_sidx(basis, XA))

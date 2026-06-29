@@ -12,7 +12,7 @@ _static_params(::SolidHarmonics) = NamedTuple()
 _static_state(Ylm::SolidHarmonics) = (Flm = Ylm.Flm,)
 
 """
-`AtomicOrbitals{TR, LEN, TY}` : a product basis
+`AtomicOrbitals{TR, LEN, TY, T}` : a product basis
 `ϕ_{n,l,m}(𝐫) = R_{n,l}(r) · Y_{l,m}(𝐫)` of a radial basis `Rnl::TR` and a real
 spherical-harmonics angular basis `Ylm::TY`.
 
@@ -28,18 +28,32 @@ radial/angular index maps live in the (non-trainable) **state**, alongside the
 `Ylm` `Flm`, so they move to the device with the state:
 `ps = (Rnl = (ζ, D), Ylm = (;))`, `st = (Rnl = (poly,), Ylm = (Flm,), iR, iY)`.
 """
-struct AtomicOrbitals{TR, LEN, TY} <: AbstractP4MLBasis
+struct AtomicOrbitals{TR, LEN, TY, T} <: AbstractP4MLBasis
     Rnl::TR
     Ylm::TY
     spec::SVector{LEN, NT_NLM}
     radidx::SVector{LEN, Int}    # radial-basis index per orbital
     ylmidx::SVector{LEN, Int}    # Ylm index per orbital
+    lengthscale::T               # input-length-unit → native (Bohr); matches param type
 end
 
-const GaussianTypeOrbitals{LEN, TY} = AtomicOrbitals{<: GaussianTypeRadials, LEN, TY}
-const SlaterTypeOrbitals{LEN, TY}   = AtomicOrbitals{<: SlaterTypeRadials, LEN, TY}
+const GaussianTypeOrbitals = AtomicOrbitals{<: GaussianTypeRadials}
+const SlaterTypeOrbitals   = AtomicOrbitals{<: SlaterTypeRadials}
 
-function AtomicOrbitals(Rnl, Ylm)
+# float type of the radial `(ζ,D)` parameters, so `lengthscale` matches them
+_param_floattype(Rnl) = eltype(Rnl.ζ)
+
+# Conversion factor (native Bohr per input length unit). The orbital parameters
+# (ζ) are in atomic units, so positions are scaled by this factor on the way in.
+# `length_unit` is required at construction (no default) to force an explicit
+# choice — a plain coordinate is otherwise silently assumed to be in some unit.
+_length_factor(u::Symbol) =
+        u === :bohr ? 1.0 :
+        (u === :angstrom || u === :Å) ? ang2bohr :
+        error("unknown length unit :$(u) — use :bohr, :angstrom/:Å, or a Unitful length")
+_length_factor(u::Unitful.Units) = ustrip(uconvert(u"angstrom", 1.0 * u)) * ang2bohr
+
+function AtomicOrbitals(Rnl, Ylm; length_unit)
     rad_spec = natural_indices(Rnl)            # (n, l) per radial function
     inv_Ylm  = _invmap(natural_indices(Ylm))   # (l, m) -> index
     spec   = NT_NLM[]
@@ -53,9 +67,11 @@ function AtomicOrbitals(Rnl, Ylm)
         end
     end
     LEN = length(spec)
-    return AtomicOrbitals{typeof(Rnl), LEN, typeof(Ylm)}(
+    T = _param_floattype(Rnl)
+    return AtomicOrbitals{typeof(Rnl), LEN, typeof(Ylm), T}(
                 Rnl, Ylm, SVector{LEN, NT_NLM}(spec),
-                SVector{LEN, Int}(radidx), SVector{LEN, Int}(ylmidx))
+                SVector{LEN, Int}(radidx), SVector{LEN, Int}(ylmidx),
+                T(_length_factor(length_unit)))
 end
 
 Base.length(basis::AtomicOrbitals) = length(basis.spec)
@@ -116,6 +132,14 @@ _positions(X::AbstractVector{<:PState}) = _position.(X)
 _species_indices(basis::AtomicOrbitals, X::AbstractVector) =
         _species_indices(basis.Rnl, X)
 
+# scale input positions into the basis's native (Bohr) frame; returns the scaled
+# positions and the scalar factor `s` (the factor is also the chain-rule multiplier
+# for spatial gradients). `s == 1` (the `:bohr` case) is a no-op fast path.
+function _to_native(basis::AtomicOrbitals, Rs)
+    s = convert(eltype(eltype(Rs)), basis.lengthscale)
+    return (s == one(s) ? Rs : s .* Rs), s
+end
+
 # Two input layers: an internal layer over positions `Rs` (`SVector{3}`) + species
 # indices `sidx`, and a public layer over a vector `X` of positions (→ species 1)
 # or `PState`s (→ species from `x.S`). The species attribute rides inside the
@@ -125,6 +149,7 @@ function evaluate(basis::AtomicOrbitals, Rs::AbstractVector{<:SVector{3}},
                   sidx::AbstractVector{<:Integer}, ps, st)
     Rnlm = _alloc_val(basis, Rs, ps, st)
     backend = KA.get_backend(Rnlm)
+    Rs, _ = _to_native(basis, Rs)
     r = norm.(Rs)
     Rnl = evaluate(basis.Rnl, r, sidx, ps.Rnl, st.Rnl)
     Ylm = SpheriCart.compute(basis.Ylm, Rs, st.Ylm)
@@ -147,6 +172,7 @@ function evaluate_ed(basis::AtomicOrbitals, Rs::AbstractVector{<:SVector{3}},
     Rnlm  = _alloc_val(basis, Rs, ps, st)
     dRnlm = _alloc_grad(basis, Rs, ps, st)
     backend = KA.get_backend(Rnlm)
+    Rs, s = _to_native(basis, Rs)
     r = norm.(Rs)
     Rnl, dRnl = evaluate_ed(basis.Rnl, r, sidx, ps.Rnl, st.Rnl)
     Ylm, dYlm = SpheriCart.compute_with_gradients(basis.Ylm, Rs, st.Ylm)
@@ -156,6 +182,8 @@ function evaluate_ed(basis::AtomicOrbitals, Rs::AbstractVector{<:SVector{3}},
     _aorb_ed_ka!(backend)(Rnlm, dRnlm, Rnl, dRnl, Ylm, dYlm, Rs, r, st.iR, st.iY;
                           ndrange = size(Rnlm))
     KA.synchronize(backend)
+    # chain rule: dRnlm is ∂φ/∂(native Rs); scale back to ∂φ/∂(input positions)
+    s == one(s) || (dRnlm .*= s)
     return Rnlm, dRnlm
 end
 
@@ -175,7 +203,7 @@ end
 
 function evaluate_ref(basis::AtomicOrbitals, X::AbstractVector,
                       ps = _static_params(basis), st = _static_state(basis))
-    Rs = _positions(X)
+    Rs, _ = _to_native(basis, _positions(X))
     Rnl = evaluate_ref(basis.Rnl, norm.(Rs), _species_indices(basis, X), ps.Rnl, st.Rnl)
     Ylm = SpheriCart.compute(basis.Ylm, Rs, st.Ylm)
     return Rnl[:, basis.radidx] .* Ylm[:, basis.ylmidx]
@@ -195,6 +223,7 @@ end
 function pullback_ps(∂Rnlm, basis::AtomicOrbitals, Rs::AbstractVector{<:SVector{3}},
                      sidx::AbstractVector{<:Integer}, ps::NamedTuple, st)
     T = promote_type(eltype(∂Rnlm), eltype(eltype(Rs)))
+    Rs, _ = _to_native(basis, Rs)        # native (Bohr) frame; params see Bohr r
     r = norm.(Rs)
     Ylm = SpheriCart.compute(basis.Ylm, Rs, st.Ylm)
     ∂Rnl = fill!(similar(Ylm, T, length(Rs), length(basis.Rnl)), zero(T))

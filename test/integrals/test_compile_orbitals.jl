@@ -82,7 +82,7 @@ end
                           ("def2-svp", "O", 8), ("cc-pvtz", "N", 7))
         @testset "$name / $el" begin
             sp  = ChemicalSpecies(Z)
-            orb = gaussian_orbitals(BasisSet(name, "$el 0.0 0.0 0.0"))
+            orb = gaussian_orbitals(BasisSet(name, "$el 0.0 0.0 0.0"); length_unit = :bohr)
             cob = compile_basis(orb)
             bcc = compile_basis(BasisSet(name, "$el 0.0 0.0 0.0"; spherical = false))
 
@@ -122,14 +122,16 @@ end
 @testset "Float32 compile + overlap" begin
     sp  = ChemicalSpecies(8)
     # element type is inferred from (ζ,D); build a Float32 orbital basis
-    orb32 = gaussian_orbitals(BasisSet("cc-pvdz", "O 0.0 0.0 0.0"); T = Float32)
+    orb32 = gaussian_orbitals(BasisSet("cc-pvdz", "O 0.0 0.0 0.0");
+                              length_unit = :bohr, T = Float32)
     cob32 = compile_basis(orb32)
     @test eltype(cob32.coef) == Float32
     rng = MersenneTwister(1)
     rA = _rawB(rng, 3);  rB = _rawB(rng, 3; offset = (3.0, 0.0, 0.0))
     # output precision is taken from the input positions
     S32 = batch_overlap(cob32, _pstates(rA, sp; T = Float32), _pstates(rB, sp; T = Float32))
-    cob64 = compile_basis(gaussian_orbitals(BasisSet("cc-pvdz", "O 0.0 0.0 0.0")))
+    cob64 = compile_basis(gaussian_orbitals(
+                BasisSet("cc-pvdz", "O 0.0 0.0 0.0"); length_unit = :bohr))
     S64 = batch_overlap(cob64, _pstates(rA, sp), _pstates(rB, sp))
     @test eltype(S32) == Float32
     # same orbital spec ordering in both → compare elementwise
@@ -138,7 +140,7 @@ end
 
 @testset "batch_overlap from orbital basis (compile-on-call)" begin
     sp  = ChemicalSpecies(8)
-    orb = gaussian_orbitals(BasisSet("cc-pvdz", "O 0.0 0.0 0.0"))
+    orb = gaussian_orbitals(BasisSet("cc-pvdz", "O 0.0 0.0 0.0"); length_unit = :bohr)
     cob = compile_basis(orb)
     rng = MersenneTwister(3)
     rA = _rawB(rng, 4);  rB = _rawB(rng, 4; offset = (3.0, 0.0, 0.0))
@@ -152,7 +154,7 @@ end
 
 @testset "multi-species slices" begin
     # cc-pvdz C, N, O share the same 3s2p1d structure → one shared spec, no padding
-    orb = gaussian_orbitals("cc-pvdz", [:C, :N, :O])
+    orb = gaussian_orbitals("cc-pvdz", [:C, :N, :O]; length_unit = :bohr)
     cob = compile_basis(orb)
     sps = (ChemicalSpecies(6), ChemicalSpecies(7), ChemicalSpecies(8))
     @test AOK.nspecies(cob) == 3
@@ -164,7 +166,8 @@ end
     # each species slice reproduces that element's single-element converter
     # exactly (same l-ascending spec → same ordering), so compare elementwise
     for (sp, el) in zip(sps, ("C", "N", "O"))
-        single = compile_basis(gaussian_orbitals(BasisSet("cc-pvdz", "$el 0.0 0.0 0.0")))
+        single = compile_basis(gaussian_orbitals(
+                BasisSet("cc-pvdz", "$el 0.0 0.0 0.0"); length_unit = :bohr))
         Sm = batch_overlap(cob,    _pstates(rA, sp), _pstates(rB, sp))
         Ss = batch_overlap(single, _pstates(rA, sp), _pstates(rB, sp))
         @test Sm ≈ Ss atol = 1e-10
@@ -178,9 +181,10 @@ end
 
 @testset "errors" begin
     # Slater radials carry a radial power the overlap kernels can't integrate
-    @test_throws ErrorException compile_basis(slater_orbitals(3, 2))
+    @test_throws ErrorException compile_basis(slater_orbitals(3, 2; length_unit = :bohr))
 
-    cob = compile_basis(gaussian_orbitals(BasisSet("sto-3g", "H 0.0 0.0 0.0")))
+    cob = compile_basis(gaussian_orbitals(
+            BasisSet("sto-3g", "H 0.0 0.0 0.0"); length_unit = :bohr))
     # a species not in the basis errors
     bad = [ PState(𝐫 = SVector(0.0, 0.0, 0.0), S = ChemicalSpecies(2)) ]   # He ∉ zlist
     @test_throws ErrorException batch_overlap(cob, bad, bad)

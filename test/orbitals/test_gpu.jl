@@ -11,7 +11,7 @@ rng = MersenneTwister(1234)
 include(joinpath(@__DIR__, "..", "utils_gpu.jl"))
 
 @testset "AtomicOrbitals eval ($(gpu_backend), Float32)" begin
-    basis = gaussian_orbitals()
+    basis = gaussian_orbitals(; length_unit = :bohr)
     Xh = [@SVector randn(3) for _ = 1:64]
     Pc = AOK.evaluate_ref(basis, Xh)              # CPU forward reference (Float64)
     _, dPc = evaluate_ed(basis, Xh)               # CPU KA gradient (Float64)
@@ -58,7 +58,7 @@ end
 # multi-species: exercise the species-indexed radial + species-scatter pullback
 # kernels on the device, via the internal (positions, sidx) layer.
 @testset "AtomicOrbitals multi-species ($(gpu_backend), Float32)" begin
-    basis = gaussian_orbitals(4, 3; nspecies = 2, zlist = (1, 6))
+    basis = gaussian_orbitals(4, 3; length_unit = :bohr, nspecies = 2, zlist = (1, 6))
     nX = 64
     Xh = [@SVector randn(3) for _ = 1:nX]
     sidx = rand(1:2, nX)

@@ -8,9 +8,9 @@ using DecoratedParticles: PState, VState
 
 @testset "construct + evaluate" begin
     rng = MersenneTwister(1234)
-    for (lbl, basis) in (("gaussian",   gaussian_orbitals()),
-                         ("slater",     slater_orbitals()),
-                         ("slater-K4",  slater_orbitals(; K = 4)))
+    for (lbl, basis) in (("gaussian",   gaussian_orbitals(; length_unit = :bohr)),
+                         ("slater",     slater_orbitals(; length_unit = :bohr)),
+                         ("slater-K4",  slater_orbitals(; length_unit = :bohr, K = 4)))
         @testset "$lbl" begin
             Nb = length(basis)
             @test Nb > 0
@@ -78,10 +78,9 @@ end
 @testset "multi-species (PState input)" begin
     rng = MersenneTwister(4321)
     zlist = (6, 1, 8)          # species labels distinct from their 1:NZ indices
-    for (lbl, basis) in (("gaussian",
-                            gaussian_orbitals(4, 3; nspecies = 3, zlist = zlist)),
-                         ("slater-K4",
-                            slater_orbitals(4, 3; K = 4, nspecies = 3, zlist = zlist)))
+    gbasis = gaussian_orbitals(4, 3; length_unit = :bohr, nspecies = 3, zlist = zlist)
+    sbasis = slater_orbitals(4, 3; length_unit = :bohr, K = 4, nspecies = 3, zlist = zlist)
+    for (lbl, basis) in (("gaussian", gbasis), ("slater-K4", sbasis))
         @testset "$lbl" begin
             Nb = length(basis)
             @test AOK.nspecies(basis.Rnl) == 3
@@ -156,7 +155,7 @@ end
     end
 
     # a species absent from the batch contributes zero parameter gradient
-    basis = gaussian_orbitals(4, 3; nspecies = 3, zlist = zlist)
+    basis = gaussian_orbitals(4, 3; length_unit = :bohr, nspecies = 3, zlist = zlist)
     Xsub = [ PState(𝐫 = (@SVector randn(3)), S = rand(rng, (6, 1))) for _ = 1:12 ]
     ps = AOK._static_params(basis);  st = AOK._static_state(basis)
     ∂ps = AOK.pullback_ps(randn(12, length(basis)), basis, Xsub, ps, st)
@@ -174,7 +173,7 @@ end
           evaluate(basis, [PState(𝐫 = x, S = zlist[1]) for x in Xdef])
 
     # regression: a single-species basis evaluated via PState matches positions
-    b1 = gaussian_orbitals(3, 2)
+    b1 = gaussian_orbitals(3, 2; length_unit = :bohr)
     Xpos = [ @SVector randn(3) for _ = 1:11 ]
     Xps  = [ PState(𝐫 = x, S = 1) for x in Xpos ]
     @test evaluate(b1, Xps) ≈ evaluate(b1, Xpos)
