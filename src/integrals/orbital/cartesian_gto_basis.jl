@@ -4,8 +4,11 @@
 # The orbital side is *per-species*: a shared `(n,l)` radial spec with `(ζ,D)`
 # carrying a species axis σ (`[nRad × K × NZ]`). This struct mirrors that layout
 # for the Cartesian overlap kernels — one Cartesian shell per `(n,l)` radial,
-# shared shell structure across species, `(ζ,D)` kept per species so the learned
-# parameters are recoverable (transfer back to the `AtomicOrbitals` basis).
+# shared shell structure across species. It is a *derived* artifact: it stores
+# only the kernel inputs `ζ` (exponents) and `coef` (Cartesian-normalized
+# coefficients) per species. The learnable parameters `(ζ,D)` live in the source
+# `AtomicOrbitals`; overlap gradients flow back through `compile_basis` (the
+# differentiable spherical→Cartesian map), so `D` is not stored here.
 #
 # Gaussian radials only: the overlap kernels integrate plain Gaussians, while a
 # Slater radial carries a nonzero radial power `r^(n1-1)`.
@@ -24,20 +27,20 @@
 Species-aware, Cartesian struct-of-arrays form of a Gaussian `AtomicOrbitals`
 basis (Cartesian Gaussian-type orbitals), produced by [`compile_basis`](@ref).
 One Cartesian shell per `(n,l)` radial; the shell structure (`ls`, `nbf`,
-offsets) is shared across species and `(ζ,D)` carry the species axis. Not
+offsets) is shared across species and `ζ`/`coef` carry the species axis. A
+derived artifact — the learnable `(ζ,D)` live in the source `AtomicOrbitals`. Not
 exported.
 
 Fields:
 
 - `Lmax`         : maximum angular momentum
 - `nshells`      : number of shells (= number of radials)
-- `K`            : primitive slots per shell (padded; unused slots have `D=0`)
+- `K`            : primitive slots per shell (padded; unused slots have `coef=0`)
 - `ls`           : `l` per shell, length `nshells`
 - `nbf`          : Cartesian functions per shell `(l+1)(l+2)÷2`, length `nshells`
 - `basis_offset` : prefix-sum of `nbf`, length `nshells+1`
 - `nbf_total`    : total Cartesian functions (per species)
-- `ζ`            : exponents `[nshells × K × NZ]` (kernel `α`; also a learnable param)
-- `D`            : spherical coefficients `[nshells × K × NZ]` (learnable param, kept recoverable)
+- `ζ`            : Cartesian exponents `[nshells × K × NZ]` (the kernel `α`; identical to the orbital `ζ`)
 - `coef`         : Cartesian-normalized coefficients `[nshells × K × NZ]` (kernel-facing, derived from `ζ,D`)
 - `zlist`        : species labels; species axis σ ↔ `zlist[σ]`
 """
@@ -51,7 +54,6 @@ struct CartesianGTOBasis{T, VI<:AbstractVector{Int}, A3<:AbstractArray{T,3},
     basis_offset::VI
     nbf_total::Int
     ζ::A3
-    D::A3
     coef::A3
     zlist::NTuple{NZ, TZ}
 end
@@ -85,8 +87,11 @@ Compile a Gaussian `AtomicOrbitals` basis into a species-aware Cartesian
 [`CartesianGTOBasis`](@ref) for the batched overlap kernels. Each `(n,l)` radial
 becomes a Cartesian shell of momentum `l`; the spherical coefficients `D` are
 renormalized to GaussianBasis's Cartesian convention so the overlaps match
-`BasisSet(...; spherical=false)`. `(ζ,D)` are stored verbatim so the parameters
-transfer back to the orbital basis. The element type is inferred from `(ζ,D)`.
+`BasisSet(...; spherical=false)`. The element type is inferred from `(ζ,D)`.
+
+The learnable parameters `(ζ,D)` stay in the `AtomicOrbitals`; this map is
+differentiable, so overlap gradients flow back through it to `(ζ,D)` and the
+compiled basis need not store `D`.
 
 Only Gaussian-type orbital bases are supported (Slater radials carry a radial
 power the overlap kernels do not integrate).
@@ -118,7 +123,7 @@ function compile_basis(orb::GaussianTypeOrbitals)
 
     return CartesianGTOBasis{T, Vector{Int}, Array{T,3}, NZ, eltype(rad.zlist)}(
         Lmax, nshells, K, ls, nbf, basis_offset, basis_offset[end],
-        ζin, Din, coef, rad.zlist)
+        ζin, coef, rad.zlist)
 end
 
 compile_basis(::SlaterTypeOrbitals) =

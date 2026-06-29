@@ -46,9 +46,9 @@ _rawB(rng, B; offset = (0.0, 0.0, 0.0), scale = 0.9) =
             @test cob.nbf_total == bcc.nbf_total
             @test sort(cob.ls) == sort(bcc.ls)           # same shells, maybe reordered
 
-            # (ζ,D) stored verbatim → parameters transfer back to the orbital basis
+            # ζ (exponents) stored verbatim; D is NOT stored — overlap gradients
+            # flow back through the differentiable compile map, not a stored D
             @test Array(cob.ζ) == Array(orb.Rnl.ζ)
-            @test Array(cob.D) == Array(orb.Rnl.D)
 
             rng = MersenneTwister(0xACE)
             rA = _rawB(rng, 4)
