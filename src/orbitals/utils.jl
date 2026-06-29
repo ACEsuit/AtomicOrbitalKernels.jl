@@ -38,26 +38,27 @@ function _example_radial(::Type{TR}, N1, N2; K::Int = 1, T::Type = Float64,
 end
 
 """
-    gaussian_orbitals(N1=4, N2=3; K=1, T=Float64, nspecies=1, zlist=1:nspecies)
+    gaussian_orbitals(N1=4, N2=3; length_unit, K=1, T=Float64, nspecies=1, zlist=1:nspecies)
 
 A deterministic example Gaussian-type atomic-orbital basis. With `nspecies>1` the
 radial `(ζ,D)` are species-indexed (labels `zlist`); species 1 reproduces the
-single-species basis.
+single-species basis. `length_unit` is required (see `AtomicOrbitals`).
 """
-gaussian_orbitals(N1 = 4, N2 = 3; K::Int = 1, T = Float64,
+gaussian_orbitals(N1 = 4, N2 = 3; length_unit, K::Int = 1, T = Float64,
                   nspecies::Int = 1, zlist = ntuple(i -> i, nspecies)) =
         AtomicOrbitals(_example_radial(GaussianTypeRadials, N1, N2;
                                        K = K, T = T, zlist = zlist),
-                       _default_ylm(N1 - 1))
+                       _default_ylm(N1 - 1); length_unit = length_unit)
 
 """
-    slater_orbitals(N1=4, N2=3; K=1, T=Float64, nspecies=1, zlist=1:nspecies)
+    slater_orbitals(N1=4, N2=3; length_unit, K=1, T=Float64, nspecies=1, zlist=1:nspecies)
 
 A deterministic example Slater-type atomic-orbital basis (`K>1` gives a
 contracted radial). With `nspecies>1` the radial `(ζ,D)` are species-indexed.
+`length_unit` is required (see `AtomicOrbitals`).
 """
-slater_orbitals(N1 = 4, N2 = 3; K::Int = 1, T = Float64,
+slater_orbitals(N1 = 4, N2 = 3; length_unit, K::Int = 1, T = Float64,
                 nspecies::Int = 1, zlist = ntuple(i -> i, nspecies)) =
         AtomicOrbitals(_example_radial(SlaterTypeRadials, N1, N2;
                                        K = K, T = T, zlist = zlist),
-                       _default_ylm(N1 - 1))
+                       _default_ylm(N1 - 1); length_unit = length_unit)

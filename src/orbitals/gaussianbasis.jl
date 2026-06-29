@@ -1,7 +1,7 @@
 """
-    gaussian_orbitals(bs::GaussianBasis.BasisSet; T = Float64)
-    gaussian_orbitals(basisname, elements; T = Float64)
-    gaussian_orbitals(pairs; T = Float64)              # pairs :: [el => name, …]
+    gaussian_orbitals(bs::GaussianBasis.BasisSet; length_unit, T = Float64)
+    gaussian_orbitals(basisname, elements; length_unit, T = Float64)
+    gaussian_orbitals(pairs; length_unit, T = Float64)   # pairs :: [el => name, …]
 
 Build an `AtomicOrbitals` basis from Gaussian basis-set data.
 
@@ -23,16 +23,20 @@ at coordinates relative to an atom, tagging each input `PState` with that atom's
   element is an atomic number, `Symbol`, `String`, or `ChemicalSpecies`.
 - `pairs` — a per-element mix of named sets, e.g. `[:C => "cc-pvdz", :H => "sto-3g"]`.
 
-`T` sets the element type of the stored `(ζ,D)` parameters.
+`T` sets the element type of the stored `(ζ,D)` parameters. `length_unit` is
+**required** (no default): the unit of the coordinates you will evaluate at —
+`:bohr`, `:angstrom`/`:Å`, or a Unitful length. The `(ζ,D)` are stored in atomic
+units; positions are scaled into Bohr on input. Forcing an explicit choice avoids
+silently assuming a unit.
 
 # Examples
 ```julia
-gaussian_orbitals(BasisSet("cc-pvdz", "C 0 0 0"))
-gaussian_orbitals("cc-pvdz", [:C, :N, :O])
-gaussian_orbitals([:C => "cc-pvdz", "H" => "sto-3g"])
+gaussian_orbitals(BasisSet("cc-pvdz", "C 0 0 0"); length_unit = :bohr)
+gaussian_orbitals("cc-pvdz", [:C, :N, :O]; length_unit = :angstrom)
+gaussian_orbitals([:C => "cc-pvdz", "H" => "sto-3g"]; length_unit = u"nm")
 ```
 """
-function gaussian_orbitals(bs::BasisSet; T = Float64)
+function gaussian_orbitals(bs::BasisSet; length_unit, T = Float64)
     shells = bs.basis
     isempty(shells) && error("the basis set has no shells")
     all(s -> s isa SphericalShell, shells) ||
@@ -78,7 +82,7 @@ function gaussian_orbitals(bs::BasisSet; T = Float64)
     end
 
     radial = GaussianTypeRadials(ζ, D, spec, nnspec, zlist)
-    return AtomicOrbitals(radial, _default_ylm(Lmax))
+    return AtomicOrbitals(radial, _default_ylm(Lmax); length_unit = length_unit)
 end
 
 # normalize an element label to an AtomsBase `ChemicalSpecies`. AtomsBase already
@@ -88,22 +92,23 @@ _species(el) = ChemicalSpecies(el)
 _species(el::AbstractString) = ChemicalSpecies(Symbol(el))
 
 # one named set loaded for every element; positions are placeholders (centre-free)
-function gaussian_orbitals(basisname::AbstractString, elements; T = Float64)
+function gaussian_orbitals(basisname::AbstractString, elements; length_unit, T = Float64)
     species = [ _species(el) for el in elements ]
     isempty(species) && error("`elements` is empty")
     geom = join(("$(string(sp)) 0.0 0.0 $(2.0 * (i - 1))"
                  for (i, sp) in enumerate(species)), "\n")
-    return gaussian_orbitals(BasisSet(basisname, geom); T = T)
+    return gaussian_orbitals(BasisSet(basisname, geom); length_unit = length_unit, T = T)
 end
 
 # per-element mix: GaussianBasis applies one name per `BasisSet` call, so load each
 # element separately and merge the shells.
-function gaussian_orbitals(pairs::AbstractVector{<:Pair}; T = Float64)
+function gaussian_orbitals(pairs::AbstractVector{<:Pair}; length_unit, T = Float64)
     isempty(pairs) && error("the `element => basis` list is empty")
     subs = [ BasisSet(string(name),
                       "$(string(_species(el))) 0.0 0.0 $(2.0 * (i - 1))")
              for (i, (el, name)) in enumerate(pairs) ]
     atoms = reduce(vcat, (s.atoms for s in subs))
     basis = reduce(vcat, (s.basis for s in subs))
-    return gaussian_orbitals(BasisSet("mixed", atoms, basis); T = T)
+    return gaussian_orbitals(BasisSet("mixed", atoms, basis);
+                             length_unit = length_unit, T = T)
 end

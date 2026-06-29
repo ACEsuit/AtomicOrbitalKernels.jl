@@ -43,6 +43,7 @@ Fields:
 - `ζ`            : Cartesian exponents `[nshells × K × NZ]` (the kernel `α`; identical to the orbital `ζ`)
 - `coef`         : Cartesian-normalized coefficients `[nshells × K × NZ]` (kernel-facing, derived from `ζ,D`)
 - `zlist`        : species labels; species axis σ ↔ `zlist[σ]`
+- `lengthscale`  : factor mapping input positions → native Bohr (from the orbital basis)
 """
 struct CartesianGTOBasis{T, VI<:AbstractVector{Int}, A3<:AbstractArray{T,3},
                          NZ, TZ}
@@ -56,6 +57,7 @@ struct CartesianGTOBasis{T, VI<:AbstractVector{Int}, A3<:AbstractArray{T,3},
     ζ::A3
     coef::A3
     zlist::NTuple{NZ, TZ}
+    lengthscale::T          # input length unit → native (Bohr); from the orbital basis
 end
 
 nspecies(b::CartesianGTOBasis) = length(b.zlist)
@@ -123,7 +125,7 @@ function compile_basis(orb::GaussianTypeOrbitals)
 
     return CartesianGTOBasis{T, Vector{Int}, Array{T,3}, NZ, eltype(rad.zlist)}(
         Lmax, nshells, K, ls, nbf, basis_offset, basis_offset[end],
-        ζin, coef, rad.zlist)
+        ζin, coef, rad.zlist, T(orb.lengthscale))
 end
 
 compile_basis(::SlaterTypeOrbitals) =

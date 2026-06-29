@@ -71,7 +71,7 @@ end
                        ("cc-pvdz", "O"), ("def2-svp", "O"))
         @testset "$name / $el" begin
             bs = BasisSet(name, "$el 0.0 0.0 0.0")
-            orb = gaussian_orbitals(bs)
+            orb = gaussian_orbitals(bs; length_unit = :bohr)
             Z = Int(only(bs.atoms).Z)
 
             @test AOK.nspecies(orb.Rnl) == 1
@@ -86,7 +86,7 @@ end
             @test evaluate_ed(orb, X)[1] ≈ ref atol = 1e-10
 
             # Float32 conversion + evaluation path
-            orb32 = gaussian_orbitals(bs; T = Float32)
+            orb32 = gaussian_orbitals(bs; length_unit = :bohr, T = Float32)
             P32 = evaluate(orb32, [ SVector{3, Float32}(x) for x in X ])
             @test eltype(P32) == Float32
             @test P32 ≈ ref atol = 1e-4
@@ -102,7 +102,7 @@ end
 @testset "multi element" begin
     # cc-pvdz C, N, O all have the same 3s2p1d structure → one shared spec, no padding
     bs = BasisSet("cc-pvdz", "C 0.0 0.0 0.0\nN 0.0 0.0 1.0\nO 0.0 1.0 0.0")
-    orb = gaussian_orbitals(bs)
+    orb = gaussian_orbitals(bs; length_unit = :bohr)
     @test AOK.nspecies(orb.Rnl) == 3
     @test orb.Rnl.zlist == (ChemicalSpecies(6), ChemicalSpecies(7), ChemicalSpecies(8))
     @test length(orb) == 14                     # 3s + 2p·3 + 1d·5
@@ -116,7 +116,7 @@ end
 
     # padding: H (2s1p) + C (3s2p1d) → shared 3s2p1d; H pads the 3rd s, 2nd p, and d
     bs2 = BasisSet("cc-pvdz", "H 0.0 0.0 0.0\nC 0.0 0.0 1.0")
-    orb2 = gaussian_orbitals(bs2)
+    orb2 = gaussian_orbitals(bs2; length_unit = :bohr)
     @test AOK.nspecies(orb2.Rnl) == 2
     @test length(orb2) == 14
     Xh = [ PState(𝐫 = (@SVector randn(3)), S = ChemicalSpecies(1)) for _ = 1:8 ]
@@ -129,14 +129,16 @@ end
     @test !all(iszero, Ph[:, setdiff(1:length(orb2), Hpad)])   # the rest are populated
 
     # an element may appear at most once
-    @test_throws ErrorException gaussian_orbitals(BasisSet("sto-3g", "H 0 0 0\nH 0 0 1"))
+    @test_throws ErrorException gaussian_orbitals(
+            BasisSet("sto-3g", "H 0 0 0\nH 0 0 1"); length_unit = :bohr)
 end
 
 @testset "convenience constructors" begin
     # (i) gaussian_orbitals(name, elements): same named set for every element.
     # Must match the explicit BasisSet path (positions are ignored by the converter).
-    orbA = gaussian_orbitals("cc-pvdz", [:C, :N, :O])
-    orbB = gaussian_orbitals(BasisSet("cc-pvdz", "C 0 0 0\nN 0 0 2\nO 0 0 4"))
+    orbA = gaussian_orbitals("cc-pvdz", [:C, :N, :O]; length_unit = :bohr)
+    orbB = gaussian_orbitals(BasisSet("cc-pvdz", "C 0 0 0\nN 0 0 2\nO 0 0 4");
+                             length_unit = :bohr)
     @test orbA.Rnl.zlist == orbB.Rnl.zlist
     @test orbA.spec == orbB.spec
     @test Array(orbA.Rnl.ζ) ≈ Array(orbB.Rnl.ζ)
@@ -145,34 +147,35 @@ end
     # element labels accepted as Int / Symbol / String / ChemicalSpecies
     want = (ChemicalSpecies(6), ChemicalSpecies(7), ChemicalSpecies(8))
     for els in ([6, 7, 8], [:C, :N, :O], ["C", "N", "O"], collect(want))
-        @test gaussian_orbitals("cc-pvdz", els).Rnl.zlist == want
+        @test gaussian_orbitals("cc-pvdz", els; length_unit = :bohr).Rnl.zlist == want
     end
 
     # duplicate element / empty list are errors
-    @test_throws ErrorException gaussian_orbitals("sto-3g", [:H, :H])
-    @test_throws ErrorException gaussian_orbitals("sto-3g", Symbol[])
+    @test_throws ErrorException gaussian_orbitals("sto-3g", [:H, :H]; length_unit = :bohr)
+    @test_throws ErrorException gaussian_orbitals("sto-3g", Symbol[]; length_unit = :bohr)
 
     # (ii) per-element mix of named sets: cc-pvdz on C, sto-3g on H
-    orbM = gaussian_orbitals([:C => "cc-pvdz", "H" => "sto-3g"])
+    orbM = gaussian_orbitals([:C => "cc-pvdz", "H" => "sto-3g"]; length_unit = :bohr)
     @test orbM.Rnl.zlist == (ChemicalSpecies(6), ChemicalSpecies(1))
     @test AOK.nspecies(orbM.Rnl) == 2
 
     X = [ @SVector randn(3) for _ = 1:8 ]
     # C-tagged points reproduce the cc-pvdz C-only orbital exactly (shared spec
     # equals C's own 3s2p1d, so columns line up)
-    orbC = gaussian_orbitals(BasisSet("cc-pvdz", "C 0 0 0"))
+    orbC = gaussian_orbitals(BasisSet("cc-pvdz", "C 0 0 0"); length_unit = :bohr)
     @test orbM.spec == orbC.spec
     Xc = [ PState(𝐫 = x, S = ChemicalSpecies(6)) for x in X ]
     @test evaluate(orbM, Xc) ≈ evaluate(orbC, X) atol = 1e-10
 
     # H-tagged points: only the 1s column is populated (sto-3g H is 1s), and it
     # matches the sto-3g H-only orbital; every padded column is exactly 0
-    orbH = gaussian_orbitals(BasisSet("sto-3g", "H 0 0 0"))
+    orbH = gaussian_orbitals(BasisSet("sto-3g", "H 0 0 0"); length_unit = :bohr)
     Xh = [ PState(𝐫 = x, S = ChemicalSpecies(1)) for x in X ]
     Ph = evaluate(orbM, Xh)
     c1s = findfirst(p -> p.l == 0 && p.n == 1, orbM.spec)
     @test Ph[:, c1s] ≈ evaluate(orbH, X)[:, 1] atol = 1e-10
     @test all(iszero, Ph[:, setdiff(1:length(orbM), c1s)])
 
-    @test_throws ErrorException gaussian_orbitals(Pair{Symbol, String}[])
+    @test_throws ErrorException gaussian_orbitals(
+            Pair{Symbol, String}[]; length_unit = :bohr)
 end
