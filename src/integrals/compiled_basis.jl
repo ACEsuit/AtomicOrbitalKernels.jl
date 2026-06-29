@@ -57,7 +57,7 @@ moved to a device via [`adapt_basis`](@ref).
 The basis must use Cartesian shells (`spherical=false` in `BasisSet`); the
 batched kernels only support Cartesian basis output for now.
 """
-function compile_basis(BS, ::Type{T}=Float64) where {T}
+function compile_basis(BS::BasisSet, ::Type{T}=Float64) where {T}
     nshells = length(BS.basis)
     ls    = Vector{Int}(undef, nshells)
     nprim = Vector{Int}(undef, nshells)

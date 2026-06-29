@@ -6,7 +6,7 @@ using AtomicOrbitalKernels
 using AtomicOrbitalKernels: Reference
 using Random
 using Unitful
-include(joinpath(@__DIR__, "utils_gpu.jl"))
+include(joinpath(@__DIR__, "..", "utils_gpu.jl"))
 
 @testset "2C overlap ($(gpu_backend), Float32)" begin
     rng = MersenneTwister(101)
