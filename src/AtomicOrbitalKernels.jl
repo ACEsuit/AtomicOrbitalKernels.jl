@@ -68,7 +68,7 @@ include("orbitals/utils.jl")
 include("orbitals/gaussianbasis.jl")
 
 # Cartesian overlap of an AtomicOrbitals basis (species-aware compile + kernels)
-include("integrals/orbital/compiled_orbital_basis.jl")
+include("integrals/orbital/cartesian_gto_basis.jl")
 include("integrals/orbital/overlap_2c.jl")
 
 export compile_basis, adapt_basis,

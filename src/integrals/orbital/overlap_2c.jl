@@ -1,5 +1,5 @@
 # Batched 2-center Cartesian-Gaussian overlap for a species-aware
-# `CompiledOrbitalBasis`. Mirrors `batch_S_kernel!` (same McMurchie–Davidson
+# `CartesianGTOBasis`. Mirrors `batch_S_kernel!` (same McMurchie–Davidson
 # E-recursion + contraction + block write, including the `N1 = 2l_a+1` linear
 # stride) but reads per-species primitives: the bra shells use species `sidxA[b]`
 # and the ket shells use species `sidxB[b]`, so each batch element is an overlap
@@ -136,7 +136,7 @@ end
 # unlike the GaussianBasis-path `CompiledBasis`) and a species `x.S`.
 
 # (3, B) position matrix in `FT` from the PState positions.
-function _cob_posmat(X::AbstractVector{<:PState}, ::Type{FT}) where {FT}
+function _cgto_posmat(X::AbstractVector{<:PState}, ::Type{FT}) where {FT}
     P = Matrix{FT}(undef, 3, length(X))
     @inbounds for i in eachindex(X)
         r = _position(X[i])
@@ -146,7 +146,7 @@ function _cob_posmat(X::AbstractVector{<:PState}, ::Type{FT}) where {FT}
 end
 
 # species label → species-axis index σ ∈ 1:NZ via `basis.zlist`.
-function _cob_species_index(basis::CompiledOrbitalBasis, s)
+function _cgto_species_index(basis::CartesianGTOBasis, s)
     σ = findfirst(==(s), basis.zlist)
     σ === nothing &&
         error("species $(s) not in basis species list $(basis.zlist)")
@@ -154,21 +154,21 @@ function _cob_species_index(basis::CompiledOrbitalBasis, s)
 end
 
 # species indices for an input batch, from each `x.S`.
-_cob_sidx(basis::CompiledOrbitalBasis, X::AbstractVector{<:PState}) =
-        Int[ _cob_species_index(basis, x.S) for x in X ]
+_cgto_sidx(basis::CartesianGTOBasis, X::AbstractVector{<:PState}) =
+        Int[ _cgto_species_index(basis, x.S) for x in X ]
 
 """
-    batch_overlap!(out, basis::CompiledOrbitalBasis, XA, XB;
+    batch_overlap!(out, basis::CartesianGTOBasis, XA, XB;
                    backend=KA.get_backend(out)) -> out
 
 Batched 2-center Cartesian-Gaussian overlap for a species-aware
-[`CompiledOrbitalBasis`](@ref). `XA`/`XB` are length-`B` vectors of
+[`CartesianGTOBasis`](@ref). `XA`/`XB` are length-`B` vectors of
 `DecoratedParticles` `PState`s; each carries a position (`x.𝐫`, atomic units /
 Bohr) and a species (`x.S`). For batch element `b`, the bra basis uses `XA[b]`'s
 species at `XA[b]`'s position and the ket basis uses `XB[b]`. `out` is
 `(nbf_total, nbf_total, B)` and sets the kernel precision.
 """
-function batch_overlap!(out, basis::CompiledOrbitalBasis,
+function batch_overlap!(out, basis::CartesianGTOBasis,
                         XA::AbstractVector{<:PState},
                         XB::AbstractVector{<:PState};
                         backend = KA.get_backend(out))
@@ -177,12 +177,12 @@ function batch_overlap!(out, basis::CompiledOrbitalBasis,
     length(XB) == B ||
         error("XA and XB must have equal length; got $(length(XA)) and $(length(XB))")
     ArrayCtor = typeof(out).name.wrapper
-    posA_d = ArrayCtor(_cob_posmat(XA, FT))
-    posB_d = ArrayCtor(_cob_posmat(XB, FT))
+    posA_d = ArrayCtor(_cgto_posmat(XA, FT))
+    posB_d = ArrayCtor(_cgto_posmat(XB, FT))
     coef_d = ArrayCtor(FT.(basis.coef))
     α_d    = ArrayCtor(FT.(basis.ζ))
-    sA_d   = ArrayCtor(_cob_sidx(basis, XA))
-    sB_d   = ArrayCtor(_cob_sidx(basis, XB))
+    sA_d   = ArrayCtor(_cgto_sidx(basis, XA))
+    sB_d   = ArrayCtor(_cgto_sidx(basis, XB))
     fill!(out, zero(FT))
     kernel! = batch_S_orbital_kernel!(backend)
     kernel!(out, basis.ls, basis.nbf, basis.basis_offset, coef_d, α_d, sA_d, sB_d,
@@ -193,16 +193,39 @@ function batch_overlap!(out, basis::CompiledOrbitalBasis,
 end
 
 """
-    batch_overlap(basis::CompiledOrbitalBasis, XA, XB; FT=Float64) -> Array{FT,3}
+    batch_overlap(basis::CartesianGTOBasis, XA, XB) -> Array
 
 Non-mutating wrapper that allocates the `(nbf_total, nbf_total, B)` output on the
-CPU and fills it via [`batch_overlap!`](@ref). `XA`/`XB` are vectors of `PState`s.
+CPU and fills it via [`batch_overlap!`](@ref). `XA`/`XB` are vectors of `PState`s;
+the output precision is taken from the input positions' element type.
 """
-function batch_overlap(basis::CompiledOrbitalBasis,
+function batch_overlap(basis::CartesianGTOBasis,
                        XA::AbstractVector{<:PState},
-                       XB::AbstractVector{<:PState};
-                       FT::Type = Float64)
+                       XB::AbstractVector{<:PState})
+    FT = float(eltype(_position(first(XA))))
     N = basis.nbf_total
     out = zeros(FT, N, N, length(XA))
     return batch_overlap!(out, basis, XA, XB)
 end
+
+# Convenience overloads on the orbital basis itself: compile to a
+# `CartesianGTOBasis` on the fly, then run the kernel. Handy for training (the
+# compile is cheap and — once Stage 4 lands — differentiable in `(ζ,D)`); for
+# inference, compile once with `compile_basis` and reuse the result.
+
+"""
+    batch_overlap(orb::AtomicOrbitals, XA, XB) -> Array
+    batch_overlap!(out, orb::AtomicOrbitals, XA, XB) -> out
+
+Compile the Gaussian orbital basis `orb` to a [`CartesianGTOBasis`](@ref) and
+compute the 2-center overlap. Equivalent to
+`batch_overlap[!](compile_basis(orb), XA, XB)`.
+"""
+batch_overlap(orb::GaussianTypeOrbitals,
+              XA::AbstractVector{<:PState}, XB::AbstractVector{<:PState}) =
+        batch_overlap(compile_basis(orb), XA, XB)
+
+batch_overlap!(out, orb::GaussianTypeOrbitals,
+               XA::AbstractVector{<:PState}, XB::AbstractVector{<:PState};
+               backend = KA.get_backend(out)) =
+        batch_overlap!(out, compile_basis(orb), XA, XB; backend = backend)

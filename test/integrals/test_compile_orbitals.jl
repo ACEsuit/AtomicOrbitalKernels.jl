@@ -25,8 +25,8 @@ using StaticArrays, LinearAlgebra, Random, Unitful, Test
 
 # Bohr positions → vector of PStates (orbital path); same points → Unitful Å
 # matrix (GaussianBasis path).
-_pstates(rawB, sp) =
-        [ PState(𝐫 = SVector{3, Float64}(rawB[1, i], rawB[2, i], rawB[3, i]),
+_pstates(rawB, sp; T = Float64) =
+        [ PState(𝐫 = SVector{3, T}(rawB[1, i], rawB[2, i], rawB[3, i]),
                  S = sp isa AbstractVector ? sp[i] : sp) for i in 1:size(rawB, 2) ]
 _unitful(rawB) = (rawB ./ AOK.ang2bohr) .* u"angstrom"
 _rawB(rng, B; offset = (0.0, 0.0, 0.0), scale = 0.9) =
@@ -70,18 +70,34 @@ end
 
 @testset "Float32 compile + overlap" begin
     sp  = ChemicalSpecies(8)
-    orb = gaussian_orbitals(BasisSet("cc-pvdz", "O 0.0 0.0 0.0"))
-    cob32 = compile_basis(orb, Float32)
+    # element type is inferred from (ζ,D); build a Float32 orbital basis
+    orb32 = gaussian_orbitals(BasisSet("cc-pvdz", "O 0.0 0.0 0.0"); T = Float32)
+    cob32 = compile_basis(orb32)
     @test eltype(cob32.coef) == Float32
     rng = MersenneTwister(1)
     rA = _rawB(rng, 3);  rB = _rawB(rng, 3; offset = (3.0, 0.0, 0.0))
-    XA = _pstates(rA, sp);  XB = _pstates(rB, sp)
-    S32 = batch_overlap(cob32, XA, XB; FT = Float32)
-    S64 = batch_overlap(compile_basis(orb), XA, XB)
+    # output precision is taken from the input positions
+    S32 = batch_overlap(cob32, _pstates(rA, sp; T = Float32), _pstates(rB, sp; T = Float32))
+    cob64 = compile_basis(gaussian_orbitals(BasisSet("cc-pvdz", "O 0.0 0.0 0.0")))
+    S64 = batch_overlap(cob64, _pstates(rA, sp), _pstates(rB, sp))
     @test eltype(S32) == Float32
     for b in 1:size(S32, 3)
         @test sort(svdvals(S32[:, :, b])) ≈ sort(svdvals(S64[:, :, b])) atol = 1e-4
     end
+end
+
+@testset "batch_overlap from orbital basis (compile-on-call)" begin
+    sp  = ChemicalSpecies(8)
+    orb = gaussian_orbitals(BasisSet("cc-pvdz", "O 0.0 0.0 0.0"))
+    cob = compile_basis(orb)
+    rng = MersenneTwister(3)
+    rA = _rawB(rng, 4);  rB = _rawB(rng, 4; offset = (3.0, 0.0, 0.0))
+    XA = _pstates(rA, sp);  XB = _pstates(rB, sp)
+    ref = batch_overlap(cob, XA, XB)
+    @test batch_overlap(orb, XA, XB) ≈ ref atol = 1e-12
+    out = zeros(cob.nbf_total, cob.nbf_total, length(XA))
+    batch_overlap!(out, orb, XA, XB)
+    @test out ≈ ref atol = 1e-12
 end
 
 @testset "multi-species slices" begin

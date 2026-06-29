@@ -1,4 +1,5 @@
-# Species-aware Cartesian compiled basis built from an `AtomicOrbitals` basis.
+# Species-aware Cartesian-Gaussian compiled basis built from an `AtomicOrbitals`
+# basis (Cartesian Gaussian-type orbitals).
 #
 # The orbital side is *per-species*: a shared `(n,l)` radial spec with `(ζ,D)`
 # carrying a species axis σ (`[nRad × K × NZ]`). This struct mirrors that layout
@@ -18,12 +19,13 @@
 # so `compile_basis(::AtomicOrbitals)` overlaps match `BasisSet(...; spherical=false)`.
 
 """
-    CompiledOrbitalBasis{T,VI,A3,NZ,TZ}
+    CartesianGTOBasis{T,VI,A3,NZ,TZ}
 
 Species-aware, Cartesian struct-of-arrays form of a Gaussian `AtomicOrbitals`
-basis, produced by [`compile_basis`](@ref). One Cartesian shell per `(n,l)`
-radial; the shell structure (`ls`, `nbf`, offsets) is shared across species and
-`(ζ,D)` carry the species axis. Not exported.
+basis (Cartesian Gaussian-type orbitals), produced by [`compile_basis`](@ref).
+One Cartesian shell per `(n,l)` radial; the shell structure (`ls`, `nbf`,
+offsets) is shared across species and `(ζ,D)` carry the species axis. Not
+exported.
 
 Fields:
 
@@ -39,8 +41,8 @@ Fields:
 - `coef`         : Cartesian-normalized coefficients `[nshells × K × NZ]` (kernel-facing, derived from `ζ,D`)
 - `zlist`        : species labels; species axis σ ↔ `zlist[σ]`
 """
-struct CompiledOrbitalBasis{T, VI<:AbstractVector{Int}, A3<:AbstractArray{T,3},
-                            NZ, TZ}
+struct CartesianGTOBasis{T, VI<:AbstractVector{Int}, A3<:AbstractArray{T,3},
+                         NZ, TZ}
     Lmax::Int
     nshells::Int
     K::Int
@@ -54,9 +56,9 @@ struct CompiledOrbitalBasis{T, VI<:AbstractVector{Int}, A3<:AbstractArray{T,3},
     zlist::NTuple{NZ, TZ}
 end
 
-nspecies(b::CompiledOrbitalBasis) = length(b.zlist)
-Base.show(io::IO, b::CompiledOrbitalBasis) =
-        print(io, "CompiledOrbitalBasis($(b.nshells) shells, $(b.nbf_total) bfs, ",
+nspecies(b::CartesianGTOBasis) = length(b.zlist)
+Base.show(io::IO, b::CartesianGTOBasis) =
+        print(io, "CartesianGTOBasis($(b.nshells) shells, $(b.nbf_total) bfs, ",
                   "$(nspecies(b)) species)")
 
 # (2l-1)!! for odd argument (1 for l=0).
@@ -77,23 +79,24 @@ function _cart_normsq(D::AbstractVector, ζ::AbstractVector, l::Integer)
 end
 
 """
-    compile_basis(orb::AtomicOrbitals, ::Type{T}=Float64) -> CompiledOrbitalBasis
+    compile_basis(orb::AtomicOrbitals) -> CartesianGTOBasis
 
 Compile a Gaussian `AtomicOrbitals` basis into a species-aware Cartesian
-[`CompiledOrbitalBasis`](@ref) for the batched overlap kernels. Each `(n,l)`
-radial becomes a Cartesian shell of momentum `l`; the spherical coefficients `D`
-are renormalized to GaussianBasis's Cartesian convention so the overlaps match
+[`CartesianGTOBasis`](@ref) for the batched overlap kernels. Each `(n,l)` radial
+becomes a Cartesian shell of momentum `l`; the spherical coefficients `D` are
+renormalized to GaussianBasis's Cartesian convention so the overlaps match
 `BasisSet(...; spherical=false)`. `(ζ,D)` are stored verbatim so the parameters
-transfer back to the orbital basis.
+transfer back to the orbital basis. The element type is inferred from `(ζ,D)`.
 
 Only Gaussian-type orbital bases are supported (Slater radials carry a radial
 power the overlap kernels do not integrate).
 """
-function compile_basis(orb::GaussianTypeOrbitals, ::Type{T}=Float64) where {T}
+function compile_basis(orb::GaussianTypeOrbitals)
     rad  = orb.Rnl
     spec = rad.spec
-    ζin  = Array{T}(rad.ζ)
-    Din  = Array{T}(rad.D)
+    ζin  = Array(rad.ζ)
+    Din  = Array(rad.D)
+    T    = promote_type(eltype(ζin), eltype(Din))
     nshells, K, NZ = size(ζin)
     @assert nshells == length(spec)
 
@@ -113,11 +116,11 @@ function compile_basis(orb::GaussianTypeOrbitals, ::Type{T}=Float64) where {T}
         ns > 0 && (@views coef[k, :, σ] .= Dk ./ sqrt(T(ns)))
     end
 
-    return CompiledOrbitalBasis{T, Vector{Int}, Array{T,3}, NZ, eltype(rad.zlist)}(
+    return CartesianGTOBasis{T, Vector{Int}, Array{T,3}, NZ, eltype(rad.zlist)}(
         Lmax, nshells, K, ls, nbf, basis_offset, basis_offset[end],
         ζin, Din, coef, rad.zlist)
 end
 
-compile_basis(::SlaterTypeOrbitals, ::Type{T}=Float64) where {T} =
+compile_basis(::SlaterTypeOrbitals) =
         error("the overlap kernels integrate plain Gaussians; a Slater-type \
                orbital basis carries a nonzero radial power and is unsupported")
