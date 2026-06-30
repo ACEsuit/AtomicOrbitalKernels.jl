@@ -22,7 +22,7 @@ Use it to set preferences, conventions, and constraints.
 
 ## Workflow
 
-- Do not commit changes unless explicitly asked to.
+- Do not commit changes to main unless explicitly asked to, but do commit changes while working on a PR
 - Push to remote when appropriate; ask when in doubt.
 - You may open a pull request on your own once you judge the work is ready for
   review (tests passing, scope complete) — no need to ask first.
@@ -44,7 +44,7 @@ Use it to set preferences, conventions, and constraints.
 - Type annotations are for dispatch only, write code as type agnostic as possible, in particular don't hard-code floating point types
 - Do not add dependencies to `Project.toml` without asking first.
 - GPU kernels use KernelAbstractions — do not introduce CUDA.jl-specific code
-  in shared paths.
+  in shared paths unless explicitly instructed.
 - It is ok to use features from the latest Julia versions. If you do, provide brief summaries and comments.
 
 <!-- Uncomment if you want a specific Julia version enforced: -->
