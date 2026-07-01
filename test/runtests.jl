@@ -59,6 +59,10 @@ const _SKIP_GPU = Base.JLOptions().check_bounds == 1 && gpu_backend != "CPU"
         include("integrals/test_overlap_3c.jl")
     end
 
+    @testset "overlap vs quadrature oracle" begin
+        include("integrals/test_overlap_quad.jl")
+    end
+
     @testset "2C/3C overlap ($gpu_backend)" begin
         if _SKIP_GPU
             @test_skip nothing
