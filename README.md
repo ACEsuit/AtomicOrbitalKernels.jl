@@ -2,165 +2,210 @@
 
 [![Build Status](https://github.com/ACEsuit/AtomicOrbitalKernels.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/ACEsuit/AtomicOrbitalKernels.jl/actions/workflows/CI.yml?query=branch%3Amain)
 
-Fast, backend-agnostic (CPU / CUDA / Metal / ROCm) kernels for **atomic
-orbitals**, written with
-[KernelAbstractions.jl](https://github.com/JuliaGPU/KernelAbstractions.jl). The package has two complementary
-halves:
+Fast, GPU-ready (CPU / CUDA / Metal / ROCm, via
+[KernelAbstractions.jl](https://github.com/JuliaGPU/KernelAbstractions.jl))
+kernels for **atomic-orbital evaluation** and **Cartesian-Gaussian overlap
+integrals**, with **learnable, differentiable** radial parameters `(ζ, D)`:
 
-1. **Atomic-orbital evaluation** — batched evaluation of orbital bases
-   `ϕ_{nlm}(𝐫, Z) = R_{nl}(r, Z) · Y_{lm}(𝐫̂)` (Gaussian-type, Slater-type, or any
-   radial × real spherical harmonics) with **learnable** radial parameters
-   `(ζ, D)`. Values and spatial gradients (`evaluate` / `evaluate_ed`),
-   `Lux`-compatible parameters/state, and full `ChainRulesCore`
-   differentiability in **both positions and parameters**.
-2. **Overlap integrals** — batched 2-center and 3-center Cartesian-Gaussian
-   overlap integrals on top of
-   [GaussianBasis.jl](https://github.com/FermiQC/GaussianBasis.jl). (Future work is to implement overlaps for general AO basis sets.)
+- **Evaluation** — batched `ϕ_{nlm}(𝐫, Z) = R_{nl}(r, Z) · Y_{lm}(𝐫̂)` for
+  Gaussian- or Slater-type radials × real spherical harmonics, values and spatial
+  gradients, `Lux`-style parameters/state, and full `ChainRulesCore`
+  differentiability in **positions and parameters**.
+- **Overlap integrals** — batched 2-center (and 3-center) Cartesian-Gaussian
+  overlaps; the 2-center orbital path is **differentiable w.r.t. `(ζ, D)`**, so a
+  basis can be trained directly from an overlap loss.
 
 Built on [Polynomials4ML.jl](https://github.com/ACEsuit/Polynomials4ML.jl) and
-[SpheriCart.jl](https://github.com/ACEsuit/SpheriCart.jl). Aim for compatibility with GaussianBasis.jl (can use it to load GTO parameters). This is early, somewhat
-experimental software written with specific research projects in mind, but it is
-already usable on CPU and GPU.
+[SpheriCart.jl](https://github.com/ACEsuit/SpheriCart.jl). It interoperates with
+[GaussianBasis.jl](https://github.com/FermiQC/GaussianBasis.jl) — used to load
+standard basis-set parameters, and available as an alternate "geometry-in"
+overlap path. This is early, research-oriented software, but already usable on
+CPU and GPU.
 
-The rest of the readme needs some cleanup, take it with a grain of salt.
+## Installation
 
-## Atomic-orbital evaluation
+```julia
+using Pkg; Pkg.add("AtomicOrbitalKernels")
+```
+
+## Quick start
+
+Build a **multi-element** basis from a standard basis set and evaluate it. Each
+input point is a `DecoratedParticles.PState` carrying a position (`𝐫`) and the
+species (`S`) of the atom it is centred on:
 
 ```julia
 using AtomicOrbitalKernels, StaticArrays
+using AtomsBase: ChemicalSpecies
+using DecoratedParticles: PState
 
-basis = gaussian_orbitals()              # example Gaussian-type orbital basis
-X = [ @SVector randn(3) for _ = 1:1000 ]
+# cc-pVDZ for C, N and O; coordinates will be given in Ångström (see "Units")
+basis = gaussian_orbitals("cc-pvdz", [:C, :N, :O]; length_unit = :angstrom)
 
-P     = evaluate(basis, X)               # values         (nX × nOrb)
-P, dP = evaluate_ed(basis, X)            # values + ∇ϕ    (dP[i,k]::SVector{3})
+# evaluate at 1000 points, each tagged with its atom's species
+X = [ PState(𝐫 = @SVector(randn(3)), S = ChemicalSpecies(:C)) for _ = 1:1000 ]
+
+P     = evaluate(basis, X)        # (nX × nOrb) matrix,  P[i,k] = ϕ_k(X[i])
+P, dP = evaluate_ed(basis, X)     # values + spatial gradients  (dP[i,k]::VState)
 ```
 
-`slater_orbitals(; K)` builds a Slater-type (optionally `K`-contracted) basis.
-The radial parameters `(ζ, D)` are learnable and the basis is `Lux`-compatible:
-
-```julia
-using LuxCore, Random
-rng = Random.default_rng()
-ps = LuxCore.initialparameters(rng, basis)
-st = LuxCore.initialstates(rng, basis)
-P, _ = basis(X, ps, st)
-```
+Other constructors: `gaussian_orbitals(BasisSet(...))` from an existing
+GaussianBasis set, `gaussian_orbitals([:C => "cc-pvdz", :H => "sto-3g"]; …)` for a
+per-element mix, and `gaussian_orbitals(; length_unit)` / `slater_orbitals(; K,
+length_unit)` for small example bases. A basis with a single species also accepts
+plain `SVector{3}` coordinates (taken as species 1) instead of `PState`s.
 
 Evaluation runs through KernelAbstractions, so the same calls execute on the GPU
-when `X` and the parameters/state are device arrays. Gradients with respect to
-positions **and** parameters are available through `ChainRulesCore` (e.g. via
-Zygote); the parameter pullback (`pullback_ps`) and the `rrule` for `evaluate`
-run on the GPU too.
+when the inputs, parameters and state are device arrays.
+
+## Units
+
+`length_unit` is a **required** keyword at construction — there is no default, so
+the unit of the coordinates you evaluate at is always explicit (a stray Å-vs-Bohr
+mix-up is otherwise silent). Accepted values: `:bohr`, `:angstrom` / `:Å`, or any
+Unitful length (e.g. `u"nm"`).
+
+The radial parameters `(ζ, D)` are stored in **atomic units (Bohr)**. Input
+positions are interpreted in the basis's `length_unit` and scaled to Bohr at the
+host boundary (a per-basis `lengthscale` factor); the kernels only ever see Bohr.
+So a basis built with `length_unit = :angstrom` evaluated at `X` gives the same
+values as a `:bohr` basis evaluated at `ang2bohr .* X`.
+
+The GaussianBasis geometry-in overlap path (below) uses a different, equally
+explicit convention: positions are passed as `Unitful.Length` matrices and
+stripped to Bohr — see that section.
+
+## Learnable parameters & differentiation
+
+The radial `(ζ, D)` are trainable, and the basis follows the `Lux` layer
+interface. `LuxCore.setup` returns `ps = (Rnl = (ζ, D), Ylm = (;))` and the
+non-trainable state `st`:
+
+```julia
+using LuxCore, Zygote, Random
+rng = Random.default_rng()
+
+ps, st = LuxCore.setup(rng, basis)     # ps.Rnl.ζ, ps.Rnl.D are the trainable params
+P, _   = basis(X, ps, st)              # Lux forward  (== evaluate(basis, X, ps, st))
+
+# evaluation is differentiable in positions AND parameters (ChainRules ⇒ Zygote):
+∂ps = Zygote.gradient(p -> sum(abs2, evaluate(basis, X, p, st)), ps)[1]
+```
+
+The 2-center overlap on the orbital basis is likewise differentiable w.r.t.
+`(ζ, D)` (the same `ps`), so a basis can be fit directly from an overlap loss —
+learned parameters transfer straight back to the orbitals:
+
+```julia
+sp = ChemicalSpecies(:C)
+XA = [ PState(𝐫 = 0.4 .* @SVector(randn(3)),               S = sp) for _ = 1:16 ]
+XB = [ PState(𝐫 = 0.4 .* @SVector(randn(3)) .+ SA[1.2,0,0], S = sp) for _ = 1:16 ]
+
+S   = batch_overlap(basis, XA, XB, ps, st)                 # (nbf × nbf × B)
+∂ps = Zygote.gradient(p -> sum(abs2, batch_overlap(basis, XA, XB, p, st)), ps)[1]
+```
+
+The parameter pullbacks and `rrule`s run on the GPU too. (Overlap gradients w.r.t.
+atom positions are not implemented yet — only w.r.t. the parameters.)
 
 ## Overlap integrals
 
-Batched, backend-agnostic Cartesian-Gaussian overlap integrals on top of
-GaussianBasis.jl.
+Batched, backend-agnostic Cartesian-Gaussian overlap integrals
+`S_{μν}(b) = ⟨φ_μ(𝐫 − A_b) | φ_ν(𝐫 − B_b)⟩`. There are two entry points:
 
-| Category                          | Status in `AtomicOrbitalKernels.jl`                                  |
-| --------------------------------- | -------------------------------------------------------------------- |
-| 2-center Cartesian overlap        | **Implemented** (mirrors `GaussianBasis.overlap`)                    |
-| 3-center Cartesian overlap        | **Added** (extension: not present in GaussianBasis.jl)               |
-| Spherical-basis output            | Not implemented                                                      |
-| Kinetic, nuclear attraction       | Not implemented                                                      |
-| Multipoles (dipole, quadrupole …) | Not implemented                                                      |
-| ERIs (2e2c, 2e3c, 2e4c)           | Not implemented                                                      |
-| Gradients                         | Not implemented                                                      |
-
-Integrals beyond 2C and 3C overlap will be added as needed. The package provides
-**no fallbacks** to GaussianBasis.jl for unimplemented operations — if you need
-them on CPU, call GaussianBasis.jl directly.
-
-The 3-center overlap `V_{μνλ}(b) = ∫ φ_μ(r - A_b) φ_ν(r - B_b) φ_λ(r - C_b) dr`
-has no equivalent in GaussianBasis.jl. Its `ERI_2e3c` is a different,
-2-electron, 3-center integral.
+**Orbital-native (differentiable).** Compile an `AtomicOrbitals` basis once and
+call it with `PState` inputs (the same species-tagged points as `evaluate`). This
+is the path used above and the one that supports parameter gradients:
 
 ```julia
-using GaussianBasis, Molecules, StaticArrays, Unitful
-using AtomicOrbitalKernels
+cob = compile_basis(basis)             # -> species-aware CartesianGTOBasis
+S   = batch_overlap(cob, XA, XB)       # inference; use the ps/st form to differentiate
+```
 
-# 1. Build a Cartesian basis set the usual GaussianBasis.jl way.
-atom = Molecules.Atom(14, 28.0855, SA[0.0, 0.0, 0.0])
-BS = BasisSet("def2-SVP", [atom]; spherical=false, lib=:acsint)
+**GaussianBasis geometry-in.** For interop / pure inference from an existing
+`BasisSet`, compile it directly and pass **Unitful** `(3, B)` position matrices
+(any length unit; stripped to Bohr). Build the set with `spherical = false`:
 
-# 2. Compile to the type-stable, struct-of-arrays form once.
+```julia
+using GaussianBasis, StaticArrays, Unitful
+
+BS    = BasisSet("def2-svp", "Si 0.0 0.0 0.0"; spherical = false)
 basis = compile_basis(BS)
-N = basis.nbf_total
+N, B  = basis.nbf_total, 1024
 
-# 3. Batched 2-center overlap on the CPU. Positions MUST carry length units.
-B = 1024
 posA = randn(3, B) .* 0.5 .* u"angstrom"
 posB = (randn(3, B) .* 0.5 .+ SA[1.5, 0.0, 0.0]) .* u"angstrom"
-
-out = zeros(Float64, N, N, B)
+out  = zeros(Float64, N, N, B)
 batch_overlap!(out, basis, posA, posB)
 
-# 4. Same call on GPU. Move the compiled basis and preallocate `out` on the device.
-# using CUDA
-# basis_gpu = adapt_basis(basis, CuArray, Float32)
-# out_gpu   = CuArray(zeros(Float32, N, N, B))
-# batch_overlap!(out_gpu, basis_gpu, posA, posB)   # positions still in Å (or any Unitful.Length)
+# GPU: move the basis (adapt_basis(basis, CuArray, Float32)) and preallocate `out`
+# on the device, then call batch_overlap! with the same Unitful positions.
+```
 
-# 3-center overlap follows the same pattern, with one more position matrix:
+The 3-center overlap
+`V_{μνλ}(b) = ∫ φ_μ(𝐫 − A_b) φ_ν(𝐫 − B_b) φ_λ(𝐫 − C_b) d𝐫` (no equivalent in
+GaussianBasis.jl) uses the same geometry-in basis with one more position matrix;
+its output scales as `O(N³·B)`, so use a smaller `B`:
+
+```julia
 posC = (randn(3, 128) .* 0.5 .+ SA[0.7, 1.2, 0.3]) .* u"angstrom"
 out3 = zeros(Float64, N, N, N, 128)
 batch_overlap_3c!(out3, basis, posA[:, 1:128], posB[:, 1:128], posC)
 ```
 
+### Status
+
+| Feature                                    | Status                                            |
+| ------------------------------------------ | ------------------------------------------------- |
+| 2-center overlap (Cartesian)               | **Implemented** — orbital-native + geometry-in    |
+| 2-center overlap parameter gradients `(ζ,D)` | **Implemented** — orbital-native path            |
+| 3-center overlap (Cartesian)               | **Implemented** — geometry-in path                |
+| Overlap position gradients                 | Not implemented                                   |
+| Spherical-basis output                     | Not implemented (Cartesian only)                  |
+| Kinetic, nuclear attraction, multipoles, ERIs | Not implemented                                |
+
+There are **no fallbacks** to GaussianBasis.jl for unimplemented operations — call
+it directly on CPU if you need them.
+
 ### Conventions
 
-- **Positions** must be passed as `AbstractMatrix{<:Unitful.Length}` (size
-  `(3, B)`). Any length unit is accepted — `u"angstrom"`, `u"bohr"`, `u"nm"`,
-  etc. — and is stripped + converted to Bohr at the host boundary before the
-  kernel launches. Plain numeric matrices are deliberately rejected with a
-  clear `ArgumentError`. This is intentionally stricter than the
-  GaussianBasis.jl convention (which treats `atom.xyz` as bare Å).
-- **Output basis** is **Cartesian** Gaussian. Build your `BasisSet` with
-  `spherical=false`.
-- **Basis-function ordering** mirrors the prototype's `generate_S_pair!`
-  exactly. For shells with `l ≥ 2` the contraction uses a linear stride of
-  `2l+1` rather than `nbf = (l+1)(l+2)/2`, which produces deliberate index
-  aliasing — preserved for bit-for-bit compatibility with the bundled scalar
-  reference (`AtomicOrbitalKernels.Reference`).
+- **Cartesian output.** Overlaps are over Cartesian Gaussian shells; build any
+  `BasisSet` with `spherical = false`.
+- **Basis-function ordering / `l ≥ 2` aliasing.** The contraction uses a linear
+  stride of `2l+1` rather than the Cartesian `nbf = (l+1)(l+2)/2`, which produces
+  deliberate index aliasing for `l ≥ 2` — preserved bit-for-bit against the
+  bundled scalar reference (`AtomicOrbitalKernels.Reference`). Relatedly, for
+  `l ≥ 2` a Cartesian shell has more functions than the `2l+1` spherical ones (the
+  extras are lower-`l` contamination); this is a known item to revisit.
 
 ### Reference implementation
 
 The pedagogical scalar implementation lives in the non-exported submodule
-`AtomicOrbitalKernels.Reference`. It is what the test suite checks against and
-is available to downstream code:
+`AtomicOrbitalKernels.Reference` (what the test suite checks against). It exposes
+the McMurchie–Davidson E-coefficient recursion and per-shell-pair / shell-triple
+writes:
 
 ```julia
 using AtomicOrbitalKernels: Reference
-# Reference.batch_S_pair_ref!(out, BS, posA, posB)   # positions: plain Å
+# Reference.batch_S_pair_ref!(out, BS, posA, posB)      # positions: plain Å matrices
 # Reference.batch_V_triple_ref!(out, BS, posA, posB, posC)
 ```
-
-The reference exposes the underlying McMurchie–Davidson E-coefficient
-recursion (`generate_E_matrix!`, `generate_E3_matrix!`) and per-shell-pair /
-shell-triple writes (`generate_S_pair!`, `generate_V_triple!`).
 
 ## Benchmarks & scaling
 
 A `PkgBenchmark` suite for the orbital evaluation and pullback kernels lives in
-[benchmark/](benchmark) (run with `using PkgBenchmark; benchmarkpkg(...)`). A
-separate scaling-sweep driver for the overlap kernels lives at
-[scaling/scaling.jl](scaling/scaling.jl) with its own `scaling/Project.toml`; it
-runs the 2C and 3C kernels at batch sizes `B = 2^7 … 2^14` for a single backend
-per invocation and prints a markdown timing table.
+[benchmark/](benchmark). A separate scaling-sweep driver for the overlap kernels
+is at [scaling/scaling.jl](scaling/scaling.jl) (with its own `scaling/Project.toml`);
+it runs the 2C and 3C kernels at batch sizes `B = 2^7 … 2^14` for one backend per
+invocation and prints a markdown timing table.
 
 ```
-# CPU using all physical cores
-julia --project=scaling -t auto scaling/scaling.jl
-
-# GPU (Float32) — pass the backend package name (must be installed)
-julia --project=scaling scaling/scaling.jl CUDA
-julia --project=scaling scaling/scaling.jl Metal
+julia --project=scaling -t auto scaling/scaling.jl     # CPU, all physical cores
+julia --project=scaling scaling/scaling.jl CUDA        # GPU (Float32); or Metal
 ```
 
-The KA `CPU` backend parallelises across Julia threads, so the CPU numbers
-depend on `--threads` / `-t` / `JULIA_NUM_THREADS`; thread count is irrelevant
-once a GPU backend is selected.
+The KA `CPU` backend parallelises across Julia threads, so CPU numbers depend on
+`--threads` / `-t` / `JULIA_NUM_THREADS`; thread count is irrelevant on a GPU.
 
 ## Testing
 
@@ -169,5 +214,11 @@ julia --project -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 ```
 
 GPU tests are opt-in: the backend is auto-detected (set `TEST_BACKEND` to force
-`CPU`/`CUDA`/`Metal`/…), and on a machine with no functional GPU the device
-tests fall back to the CPU backend.
+`CPU` / `CUDA` / `Metal` / …), and on a machine with no functional GPU the device
+tests fall back to the CPU backend. `Pkg.test` forces `--check-bounds=yes`, which
+GPU kernels can't compile under, so the GPU overlap testset is skipped under it.
+To exercise the GPU path:
+
+```julia
+using Pkg; Pkg.test("AtomicOrbitalKernels"; julia_args=`--check-bounds=auto`)
+```
