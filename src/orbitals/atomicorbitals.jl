@@ -164,6 +164,28 @@ end
 evaluate(basis::AtomicOrbitals, X::AbstractVector, ps, st) =
         evaluate(basis, _positions(X), _species_indices(basis, X), ps, st)
 
+"""
+    evaluate(basis::AtomicOrbitals, X) -> P
+    evaluate(basis::AtomicOrbitals, X, ps, st) -> P
+
+Batched evaluation of the atomic orbitals `ϕ_{nlm}(𝐫) = R_{nl}(r) · Y_{lm}(𝐫̂)`,
+returning the `(length(X), length(basis))` matrix `P` with `P[i, k] = ϕ_k(X[i])`.
+
+`X` is a vector of either plain positions (`SVector{3}`, treated as species 1) or
+`DecoratedParticles.PState`s carrying a position `x.𝐫` and a species `x.S` (which
+selects the radial's per-species `(ζ, D)` slice). Positions are interpreted in the
+basis's `length_unit` and scaled to Bohr internally.
+
+The four-argument form is the Lux forward: `ps = (Rnl = (ζ, D), Ylm = (;))` are the
+trainable radial parameters and `st` the non-trainable state, both from
+`LuxCore.setup(rng, basis)`; the two-argument form uses the parameters/state stored
+in `basis`. Evaluation runs through KernelAbstractions, so the call executes on the
+GPU when `X`, `ps`, and `st` are device arrays.
+
+See [`evaluate_ed`](@ref) for values together with spatial gradients; gradients
+w.r.t. positions and parameters are available through ChainRulesCore
+(`rrule` / `pullback_ps`).
+"""
 evaluate(basis::AtomicOrbitals, X::AbstractVector) =
         evaluate(basis, X, _static_params(basis), _static_state(basis))
 
@@ -187,6 +209,15 @@ function evaluate_ed(basis::AtomicOrbitals, Rs::AbstractVector{<:SVector{3}},
     return Rnlm, dRnlm
 end
 
+"""
+    evaluate_ed(basis::AtomicOrbitals, X) -> P, dP
+    evaluate_ed(basis::AtomicOrbitals, X, ps, st) -> P, dP
+
+Like [`evaluate`](@ref), but also returns the spatial gradients `dP`, with
+`dP[i, k] = ∇ϕ_k(X[i])`: an `SVector{3}` for plain-position input, or a `VState`
+(gradient in its `𝐫` slot) for `PState` input. The gradient is taken w.r.t. the
+input coordinates and includes the `length_unit → Bohr` chain-rule factor.
+"""
 evaluate_ed(basis::AtomicOrbitals, X::AbstractVector) =
         evaluate_ed(basis, X, _static_params(basis), _static_state(basis))
 
