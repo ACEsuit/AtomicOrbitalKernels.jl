@@ -171,12 +171,12 @@ it directly on CPU if you need them.
 
 - **Cartesian output.** Overlaps are over Cartesian Gaussian shells; build any
   `BasisSet` with `spherical = false`.
-- **Basis-function ordering / `l ≥ 2` aliasing.** The contraction uses a linear
-  stride of `2l+1` rather than the Cartesian `nbf = (l+1)(l+2)/2`, which produces
-  deliberate index aliasing for `l ≥ 2` — preserved bit-for-bit against the
-  bundled scalar reference (`AtomicOrbitalKernels.Reference`). Relatedly, for
-  `l ≥ 2` a Cartesian shell has more functions than the `2l+1` spherical ones (the
-  extras are lower-`l` contamination); this is a known item to revisit.
+- **Basis-function ordering.** The contraction writes each Cartesian shell block
+  with the `nbf = (l+1)(l+2)/2` stride, checked against both the bundled scalar
+  reference (`AtomicOrbitalKernels.Reference`) and an independent Gauss–Hermite
+  quadrature oracle. Separately, for `l ≥ 2` a Cartesian shell has more functions
+  than the `2l+1` spherical ones (the extras are lower-`l` contamination); this is
+  a known item to revisit.
 
 ### Reference implementation
 

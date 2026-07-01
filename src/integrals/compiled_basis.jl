@@ -5,9 +5,9 @@
 #
 # Convention: `nbf[i]` is the number of Cartesian basis functions per shell
 # `(l+1)(l+2)÷2` (matching `GaussianBasis.num_basis` for Cartesian shells). The
-# kernel contraction uses a linear stride of `2l+1` to match the existing naive
-# reference (`Reference.generate_S_pair!`) exactly — for L ≤ 1 these agree, for
-# L ≥ 2 they differ and the aliasing is preserved on purpose.
+# kernel contraction writes each block with a linear stride of `nbf` (the
+# Cartesian count), matching the readback and the naive reference
+# (`Reference.generate_S_pair!`).
 #
 # Note: at runtime the kernels are GaussianBasis-free; only `compile_basis(BS)`
 # touches the GaussianBasis types. A future extension could move that boundary

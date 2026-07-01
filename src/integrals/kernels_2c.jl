@@ -22,7 +22,7 @@
     nbf_b = nbf[s_b]
     row_off = basis_offset[s_a]
     col_off = basis_offset[s_b]
-    N1 = 2 * l_a + 1
+    N1 = nbf_a
 
     E   = MArray{Tuple{2 * Lmax + 2, Lmax + 1, Lmax + 1, 3}, FT}(undef)
     blk = MArray{Tuple{((Lmax + 1) * (Lmax + 2) ÷ 2)^2}, FT}(undef)
@@ -97,8 +97,9 @@
         end
 
         # Contraction: flat (nbf_a × nbf_b) block at linear position
-        # `index1 + N1*(index2-1)`, N1 = 2*l_a + 1. Matches Reference.generate_S_pair!
-        # bit-for-bit (including the L ≥ 2 aliasing).
+        # `index1 + N1*(index2-1)`, N1 = nbf_a (the Cartesian count), so the write
+        # stride matches the readback below for every l. Matches
+        # Reference.generate_S_pair! bit-for-bit.
         index1 = 1
         for ll1 in l_a:-1:0
             for n1 in 0:(l_a - ll1)

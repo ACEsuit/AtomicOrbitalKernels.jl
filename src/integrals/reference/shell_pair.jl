@@ -1,11 +1,11 @@
 """
     generate_S_pair!(out, E, B1, B2)
 
-Generate the `(2l_1+1) × (2l_2+1)` block of the overlap matrix for the shell
-pair `(B1, B2)` (Cartesian-Gaussian shells; positions in Å on the shell atoms).
-Writes via the flat-linear `index1 + N1*(index2-1)` indexing scheme with
-`N1 = 2*l_1+1` — the same convention the KA kernel reproduces so that batched
-and reference results agree bit-for-bit.
+Generate the `nbf_1 × nbf_2` block of the overlap matrix for the shell pair
+`(B1, B2)` (Cartesian-Gaussian shells, `nbf = (l+1)(l+2)÷2`; positions in Å on
+the shell atoms). Writes via the flat-linear `index1 + N1*(index2-1)` indexing
+scheme with `N1 = nbf_1` — the same convention the KA kernel reproduces so that
+batched and reference results agree bit-for-bit.
 """
 function generate_S_pair!(out, E, B1, B2)
     fill!(out, zero(eltype(out)))
@@ -17,7 +17,7 @@ function generate_S_pair!(out, E, B1, B2)
     A = B1.atom.xyz .* ang2bohr
     B = B2.atom.xyz .* ang2bohr
 
-    N1 = 2 * B1.l + 1
+    N1 = (B1.l + 1) * (B1.l + 2) ÷ 2
 
     for (ca, a) in zip(B1.coef, B1.exp)
         for (cb, b) in zip(B2.coef, B2.exp)

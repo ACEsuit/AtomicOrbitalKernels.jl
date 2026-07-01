@@ -1,6 +1,6 @@
 name = "AtomicOrbitalKernels"
 uuid = "aa7a2209-7a51-48b2-9f84-4fb7a35f78a5"
-version = "0.0.4"
+version = "0.0.5"
 authors = ["Christoph Ortner <christophortner0@gmail.com> and contributors"]
 
 [deps]

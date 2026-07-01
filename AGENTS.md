@@ -119,11 +119,12 @@ from the raised-angular-momentum identity, E-tables run to `Lmax+2`) →
 - **Output is Cartesian Gaussian**, build `BasisSet(...; spherical=false)`. For
   `l ≥ 2` the Cartesian count `(l+1)(l+2)/2` exceeds the spherical `2l+1` (the
   extra functions are lower-`l` contamination — an open item to revisit).
-- **`l ≥ 2` stride-aliasing wart**: contraction writes blocks with stride `N1 =
-  2l+1` but reads back with stride `nbf`, scrambling d/f blocks. Preserved on
-  purpose to match the equally-aliased `Reference`; only an independent
-  quadrature oracle would catch it. New overlap code must reproduce it exactly
-  (the diff pullback mirrors the forward stride/readback).
+- **Block stride is the Cartesian `nbf`**: contraction writes each block with
+  stride `N1 = nbf` (`= (l+1)(l+2)/2`), matching the readback for every l. (An
+  earlier `2l+1` write stride scrambled d/f blocks; fixed in the Stage-5 overlap
+  work and guarded by an independent Gauss–Hermite quadrature oracle,
+  `test/integrals/quad_oracle.jl`. New overlap code must keep the write and
+  readback strides equal — the diff pullback mirrors the forward.)
 - **KA-only in shared paths** — no CUDA.jl-specific code (see `CLAUDE.md`).
   Backend is inferred from the array type.
 - Do **not** hard-code `Float64`; compute in the promoted/working float type
