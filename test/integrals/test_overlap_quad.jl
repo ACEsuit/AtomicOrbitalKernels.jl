@@ -1,10 +1,11 @@
 # Independent Gauss–Hermite quadrature oracle for the Cartesian overlap kernels
-# (Stage 5, PR A). The existing `Reference` oracle reproduces the kernels' `2l+1`
-# write stride and so shares their l ≥ 2 block aliasing — every value test against
-# it is self-referential. This oracle integrates the Cartesian AO products with a
-# correct `nbf` stride, so it agrees with the kernel for l ≤ 1 and exposes the
-# aliasing for l ≥ 2. The full-matrix comparisons for the d-shell basis are
-# therefore `@test_broken` here and get flipped to `@test` in PR B (the fix).
+# (Stage 5). Unlike the `Reference` oracle — which shares the kernels' block
+# layout — this integrates the Cartesian AO products directly and writes blocks
+# with the correct `nbf` stride, so it is a true ground truth independent of the
+# McMurchie–Davidson recursion and the block indexing (GH is exact for these
+# polynomial×Gaussian integrands). It was introduced to catch the l ≥ 2 write-
+# stride aliasing; with the stride fixed to `nbf`, kernel and oracle now agree on
+# the full matrix, including the d/f blocks.
 
 using AtomicOrbitalKernels
 using AtomicOrbitalKernels: Reference
@@ -59,8 +60,9 @@ end
     qo = zeros(Float64, NH, NH, B); quad_batch_S_pair!(qo, BS_H_STO3G, pA_raw, pB_raw)
     @test maximum(abs, ka .- qo) < 1e-10
 
-    # Lmax = 2 (Si def2-SVP, has a d shell): the kernel is correct on the l ≤ 1
-    # sub-blocks but aliases the d block, so it disagrees with the oracle there.
+    # Lmax = 2 (Si def2-SVP, has a d shell): exercises the d block whose `2l+1`
+    # write stride used to scramble it. The l ≤ 1 sub-block is checked separately
+    # as a more localized regression signal.
     bc = compile_basis(BS_SI_DEFSVP)
     N = bc.nbf_total
     qA_raw, qA_u = random_positions(B; offset=(0.0, 0.0, 0.0), scale=0.5, rng=rng)
@@ -73,8 +75,9 @@ end
 
     d_full = maximum(abs, ka2 .- qo2)
     @info "2C Si def2-SVP: max |kernel − oracle| over the full matrix" d_full
-    # KNOWN-BROKEN (l ≥ 2 aliasing) — PR B flips this to @test:
-    @test_broken d_full < 1e-9
+    # full matrix (incl. the d block) now agrees — the stride fix removed the
+    # l ≥ 2 aliasing
+    @test d_full < 1e-9
 end
 
 @testset "3-center: kernel vs quadrature oracle" begin
@@ -96,6 +99,7 @@ end
 
     d_full = maximum(abs, ka .- qo)
     @info "3C Si def2-SVP: max |kernel − oracle| over the full tensor" d_full
-    # KNOWN-BROKEN (l ≥ 2 aliasing) — PR B flips this to @test:
-    @test_broken d_full < 1e-8
+    # full tensor (incl. the d block) now agrees — the stride fix removed the
+    # l ≥ 2 aliasing
+    @test d_full < 1e-8
 end
