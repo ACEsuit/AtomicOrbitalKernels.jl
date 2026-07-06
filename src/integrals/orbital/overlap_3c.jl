@@ -11,8 +11,8 @@
 #
 # Recursion + contraction come from the shared helpers in `integrals/mdE.jl`;
 # only the per-species primitive access and the zero-coef skip live here.
-# Forward only — the `(ζ,D)` pullback currently exists for the 2C path alone
-# (`overlap_2c_grad.jl`).
+# The `(ζ,D)` pullback and Lux `(ps,st)` value layer live in
+# `overlap_3c_grad.jl`.
 
 @kernel function batch_V_orbital_kernel!(out::AbstractArray{FT,4},
                                  @Const(ls), @Const(nbf), @Const(basis_offset),

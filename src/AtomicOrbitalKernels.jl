@@ -73,6 +73,7 @@ include("integrals/orbital/cartesian_gto_basis.jl")
 include("integrals/orbital/overlap_2c.jl")
 include("integrals/orbital/overlap_2c_grad.jl")
 include("integrals/orbital/overlap_3c.jl")
+include("integrals/orbital/overlap_3c_grad.jl")
 
 export compile_basis, adapt_basis,
        batch_overlap!, batch_overlap,

@@ -95,8 +95,10 @@ one is the most common mistake here.
   **`D` is not stored**), `orbital/overlap_2c.jl` (forward kernel + `PState` API),
   `orbital/overlap_2c_grad.jl` (Lux `(ps,st)` value layer + analytic pullback
   kernel + `rrule`, **params only**; positions are `NoTangent`),
-  `orbital/overlap_3c.jl` (3C forward kernel + `PState` API, **forward only** —
-  no `(ζ,D)` pullback yet). `adapt_basis` also covers `CartesianGTOBasis`
+  `orbital/overlap_3c.jl` (3C forward kernel + `PState` API),
+  `orbital/overlap_3c_grad.jl` (3C `(ps,st)` value layer + analytic pullback +
+  `rrule`, params only — same decomposition as 2C, trilinear in `coef`).
+  `adapt_basis` also covers `CartesianGTOBasis`
   (method lives in `cartesian_gto_basis.jl`); the entry points reuse
   device-resident `ζ`/`coef` via `_dev_param`.
 - `Reference` submodule (`integrals/reference/`) — non-exported scalar oracle the
@@ -165,9 +167,8 @@ julia --project -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 
 ## Scope: implemented vs not
 
-Implemented: orbital evaluation (value + ∇, params + positions diff), 2C overlap
-(GB + orbital/differentiable paths), 3C overlap (GB + orbital paths; orbital 3C
-is forward-only, no `(ζ,D)` pullback). **Not** implemented: spherical-basis
-output, kinetic / nuclear-attraction / multipoles / ERIs, the 3C `(ζ,D)`
-pullback, Cartesian→spherical (`c2s`). Add integrals only as needed; no
-GaussianBasis.jl fallbacks.
+Implemented: orbital evaluation (value + ∇, params + positions diff), 2C and 3C
+overlap (GB + orbital/differentiable paths; `(ζ,D)` param gradients on both).
+**Not** implemented: spherical-basis output, kinetic / nuclear-attraction /
+multipoles / ERIs, overlap position gradients, Cartesian→spherical (`c2s`). Add
+integrals only as needed; no GaussianBasis.jl fallbacks.
