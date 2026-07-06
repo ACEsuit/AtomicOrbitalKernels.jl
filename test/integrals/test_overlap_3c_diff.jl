@@ -1,7 +1,7 @@
 # Differentiable 3-center overlap. The Lux-style
 # `batch_overlap(orb, XA, XB, XC, ps, st)` recomputes `coef` from the radial
 # params `ps.Rnl = (ζ, D)`, so the overlap is differentiable w.r.t. `(ζ, D)`. The
-# analytic parameter pullback (`pullback_ps` / `rrule`) is checked against
+# analytic parameter pullback (`batch_overlap_pb_ps` / `rrule`) is checked against
 # ForwardDiff directional derivatives, mirroring test_overlap_2c_diff.jl. (The
 # normalization pullback `_compile_coef_pb` is shared with 2C and tested there.)
 
@@ -40,7 +40,7 @@ _dps3(raw, sp; T = Float64) =
 
     N = size(V, 1)
     ∂V = randn(rng, N, N, N, B)
-    ∂ps = AOK.pullback_ps(∂V, orb, XA, XB, XC, ps, st)
+    ∂ps = AOK.batch_overlap_pb_ps(∂V, orb, XA, XB, XC, ps, st)
     @test size(∂ps.Rnl.ζ) == size(ps.Rnl.ζ)
     @test size(∂ps.Rnl.D) == size(ps.Rnl.D)
 
@@ -87,7 +87,7 @@ end
     @test V ≈ batch_overlap(compile_basis(orb), XA, XB, XC)
     N = size(V, 1)
     ∂V = randn(rng, N, N, N, B)
-    ∂ps = AOK.pullback_ps(∂V, orb, XA, XB, XC, ps, st)
+    ∂ps = AOK.batch_overlap_pb_ps(∂V, orb, XA, XB, XC, ps, st)
     ζ = ps.Rnl.ζ;  D = ps.Rnl.D
     Vd = randn(rng, size(ζ));  W = randn(rng, size(D))
     lossD(Di) = sum(∂V .* batch_overlap(orb, XA, XB, XC,
@@ -101,7 +101,7 @@ end
     XAs = _dps3(randn(rng, 3, B) .* 0.5, rand(rng, (6, 1), B))
     XBs = _dps3(randn(rng, 3, B) .* 0.5 .+ [1.5, 0.0, 0.0], rand(rng, (6, 1), B))
     XCs = _dps3(randn(rng, 3, B) .* 0.5 .+ [0.5, 1.0, 0.0], rand(rng, (6, 1), B))
-    ∂ps_s = AOK.pullback_ps(randn(rng, N, N, N, B), orb, XAs, XBs, XCs, ps, st)
+    ∂ps_s = AOK.batch_overlap_pb_ps(randn(rng, N, N, N, B), orb, XAs, XBs, XCs, ps, st)
     σ8 = AOK._z2i(orb.Rnl, 8)
     @test all(iszero, ∂ps_s.Rnl.ζ[:, :, σ8])
     @test all(iszero, ∂ps_s.Rnl.D[:, :, σ8])
@@ -118,7 +118,7 @@ end
     XC = _dps3(randn(rng, 3, B) .* 0.5f0 .+ [0, 1.0f0, 0], 1; T = Float32)
     V = batch_overlap(orb, XA, XB, XC, ps, st)
     @test eltype(V) == Float32
-    ∂ps = AOK.pullback_ps(Float32.(randn(rng, size(V))), orb, XA, XB, XC, ps, st)
+    ∂ps = AOK.batch_overlap_pb_ps(Float32.(randn(rng, size(V))), orb, XA, XB, XC, ps, st)
     @test eltype(∂ps.Rnl.ζ) == Float32
     @test all(isfinite, ∂ps.Rnl.ζ) && all(isfinite, ∂ps.Rnl.D)
 end

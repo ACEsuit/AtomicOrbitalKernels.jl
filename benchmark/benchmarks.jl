@@ -1,6 +1,6 @@
 using BenchmarkTools
 using AtomicOrbitalKernels
-using AtomicOrbitalKernels: evaluate, evaluate_ed, pullback_ps, nspecies, _aorb_rrule,
+using AtomicOrbitalKernels: evaluate, evaluate_ed, evaluate_pb_ps, nspecies, _aorb_rrule,
                             _powers
 using StaticArrays, LinearAlgebra, Random
 
@@ -31,10 +31,11 @@ function _add_orbital_group!(group, dev, T, basis, nX)
     group["evaluate"]        = @benchmarkable evaluate($basis, $X, $sidx, $ps, $st)
     group["evaluate_ed"]     = @benchmarkable evaluate_ed($basis, $X, $sidx, $ps, $st)
     # radial parameter pullback in isolation (kernel `_gtostoradials_pb_ka!`)
-    group["radial_pullback"] = @benchmarkable pullback_ps($∂R, $(basis.Rnl), $r,
-                                                          $sidx, $(ps.Rnl), $(st.Rnl))
+    group["radial_pullback"] = @benchmarkable evaluate_pb_ps($∂R, $(basis.Rnl), $r,
+                                                              $sidx, $(ps.Rnl), $(st.Rnl))
     # orbital parameter pullback (kernel `_aorb_pbrad_ka!` + radial)
-    group["pullback_ps"]     = @benchmarkable pullback_ps($∂P, $basis, $X, $sidx, $ps, $st)
+    group["evaluate_pb_ps"]  = @benchmarkable evaluate_pb_ps($∂P, $basis, $X,
+                                                              $sidx, $ps, $st)
     # rrule pullback: X-pullback (kernel `_aorb_pbx_ka!`) + parameter pullback
     _, pb = _aorb_rrule(basis, X, X, sidx, ps, st)
     group["rrule_pullback"]  = @benchmarkable $pb($∂P)

@@ -195,16 +195,16 @@ end
 # ---- parameter pullback + ChainRules rrule ----
 
 """
-    pullback_ps(∂V, orb::AtomicOrbitals, XA, XB, XC, ps, st)
+    batch_overlap_pb_ps(∂V, orb::AtomicOrbitals, XA, XB, XC, ps, st)
         -> (Rnl=(ζ=∂ζ, D=∂D), Ylm=())
 
 Parameter pullback of the 3-center overlap w.r.t. the radial `(ζ, D)`: combines
 the analytic kernel pullback (`∂coef`, `∂α`) with the normalization pullback.
 """
-function pullback_ps(∂V, orb::GaussianTypeOrbitals,
-                     XA::AbstractVector{<:PState},
-                     XB::AbstractVector{<:PState},
-                     XC::AbstractVector{<:PState}, ps, st)
+function batch_overlap_pb_ps(∂V, orb::GaussianTypeOrbitals,
+                             XA::AbstractVector{<:PState},
+                             XB::AbstractVector{<:PState},
+                             XC::AbstractVector{<:PState}, ps, st)
     basis = _compiled_from_ps(orb, ps)
     ∂coef, ∂α = _overlap_3c_pb_coef_alpha(∂V, basis, XA, XB, XC)
     ∂D, ∂ζ_norm = _compile_coef_pb(∂coef, ps.Rnl.ζ, ps.Rnl.D, basis.ls)
@@ -219,7 +219,7 @@ function rrule(::typeof(batch_overlap), orb::GaussianTypeOrbitals,
     V = batch_overlap(orb, XA, XB, XC, ps, st)
     function _pb(_∂)
         ∂V = unthunk(_∂)
-        ∂ps = pullback_ps(∂V, orb, XA, XB, XC, ps, st)
+        ∂ps = batch_overlap_pb_ps(∂V, orb, XA, XB, XC, ps, st)
         return (NoTangent(), NoTangent(), NoTangent(), NoTangent(), NoTangent(),
                 ∂ps, NoTangent())
     end

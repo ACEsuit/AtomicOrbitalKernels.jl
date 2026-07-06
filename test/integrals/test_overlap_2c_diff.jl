@@ -1,7 +1,7 @@
 # Differentiable 2-center overlap (Stage 4). The Lux-style
 # `batch_overlap(orb, XA, XB, ps, st)` recomputes `coef` from the radial params
 # `ps.Rnl = (ζ, D)`, so the overlap is differentiable w.r.t. `(ζ, D)`. The analytic
-# parameter pullback (`pullback_ps` / `rrule`) is checked against ForwardDiff
+# parameter pullback (`batch_overlap_pb_ps` / `rrule`) is checked against ForwardDiff
 # directional derivatives, exactly as the orbital `evaluate` tests are.
 
 using AtomicOrbitalKernels
@@ -39,7 +39,7 @@ _dpstates(raw, sp; T = Float64) =
 
     N = size(S, 1)
     ∂S = randn(rng, N, N, B)
-    ∂ps = AOK.pullback_ps(∂S, orb, XA, XB, ps, st)
+    ∂ps = AOK.batch_overlap_pb_ps(∂S, orb, XA, XB, ps, st)
     @test size(∂ps.Rnl.ζ) == size(ps.Rnl.ζ)
     @test size(∂ps.Rnl.D) == size(ps.Rnl.D)
 
@@ -102,7 +102,7 @@ end
     @test S ≈ batch_overlap(compile_basis(orb), XA, XB)
     N = size(S, 1)
     ∂S = randn(rng, N, N, B)
-    ∂ps = AOK.pullback_ps(∂S, orb, XA, XB, ps, st)
+    ∂ps = AOK.batch_overlap_pb_ps(∂S, orb, XA, XB, ps, st)
     ζ = ps.Rnl.ζ;  D = ps.Rnl.D
     V = randn(rng, size(ζ));  W = randn(rng, size(D))
     lossD(Di) = sum(∂S .* batch_overlap(orb, XA, XB,
@@ -115,7 +115,7 @@ end
     # a species absent from the batch gets a zero parameter gradient
     XAs = _dpstates(randn(rng, 3, B) .* 0.5, rand(rng, (6, 1), B))
     XBs = _dpstates(randn(rng, 3, B) .* 0.5 .+ [1.5, 0.0, 0.0], rand(rng, (6, 1), B))
-    ∂ps_s = AOK.pullback_ps(randn(rng, N, N, B), orb, XAs, XBs, ps, st)
+    ∂ps_s = AOK.batch_overlap_pb_ps(randn(rng, N, N, B), orb, XAs, XBs, ps, st)
     σ8 = AOK._z2i(orb.Rnl, 8)
     @test all(iszero, ∂ps_s.Rnl.ζ[:, :, σ8])
     @test all(iszero, ∂ps_s.Rnl.D[:, :, σ8])
@@ -131,7 +131,7 @@ end
     XB = _dpstates(randn(rng, 3, B) .* 0.5f0 .+ [1.5f0, 0, 0], 1; T = Float32)
     S = batch_overlap(orb, XA, XB, ps, st)
     @test eltype(S) == Float32
-    ∂ps = AOK.pullback_ps(Float32.(randn(rng, size(S))), orb, XA, XB, ps, st)
+    ∂ps = AOK.batch_overlap_pb_ps(Float32.(randn(rng, size(S))), orb, XA, XB, ps, st)
     @test eltype(∂ps.Rnl.ζ) == Float32
     @test all(isfinite, ∂ps.Rnl.ζ) && all(isfinite, ∂ps.Rnl.D)
 end

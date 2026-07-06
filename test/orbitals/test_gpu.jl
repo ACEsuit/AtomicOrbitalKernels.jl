@@ -69,7 +69,7 @@ end
     Pc = evaluate(basis, Xh, sidx, psc, stc)
     _, dPc = evaluate_ed(basis, Xh, sidx, psc, stc)
     ∂P = randn(nX, length(basis))
-    ∂psc = AOK.pullback_ps(∂P, basis, Xh, sidx, psc, stc)
+    ∂psc = AOK.evaluate_pb_ps(∂P, basis, Xh, sidx, psc, stc)
 
     Xg = dev([SVector{3, Float32}(x) for x in Xh])
     sg = dev(sidx)
@@ -92,7 +92,7 @@ end
     @test num / den < 1f-2
 
     ∂Pg = dev(Float32.(∂P))
-    ∂psg = AOK.pullback_ps(∂Pg, basis, Xg, sg, psg, stg)
+    ∂psg = AOK.evaluate_pb_ps(∂Pg, basis, Xg, sg, psg, stg)
     @test dev === identity || !(∂psg.Rnl.ζ isa Array)
     @test norm(Array(∂psg.Rnl.ζ) .- Float32.(∂psc.Rnl.ζ)) / norm(∂psc.Rnl.ζ) < 1f-2
     @test norm(Array(∂psg.Rnl.D) .- Float32.(∂psc.Rnl.D)) / norm(∂psc.Rnl.D) < 1f-2

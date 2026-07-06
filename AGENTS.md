@@ -36,8 +36,10 @@ SpheriCart (`SolidHarmonics`). Early/experimental but usable on CPU and GPU.
 - Overlap: `compile_basis`, `adapt_basis`, `batch_overlap[!]`,
   `batch_overlap_3c[!]`.
 
-Not exported but commonly used internally: `pullback_ps`, `rrule` (param/position
-gradients), `AtomicOrbitalKernels.Reference` (scalar oracle submodule).
+Not exported but commonly used internally: the analytic parameter pullbacks
+`evaluate_pb_ps` / `batch_overlap_pb_ps` (named `{forward}_pb_ps` after their
+forward function), `rrule` (param/position gradients), and
+`AtomicOrbitalKernels.Reference` (scalar oracle submodule).
 
 ## Two input/parameter worlds — do not mix them up
 
@@ -66,7 +68,7 @@ one is the most common mistake here.
   returned as plain `Array` in `ps` (GPU-/AD-friendly).
 - Three call layers (mirror these when adding methods): static
   `evaluate(b, X)` → Lux `evaluate(b, X, ps, st)` → kernel-facing
-  `evaluate(b, Rs, sidx, ps, st)`. Same for `evaluate_ed`, `pullback_ps`.
+  `evaluate(b, Rs, sidx, ps, st)`. Same for `evaluate_ed`, `evaluate_pb_ps`.
 - `ps = (Rnl = (ζ, D), Ylm = (;))`; `st = (Rnl = (poly,), Ylm = (Flm,), iR, iY)`
   (index maps + harmonics normalization live in **state**, so they move to the
   device). `evaluate_ref` is a forward-only oracle.
@@ -75,7 +77,7 @@ one is the most common mistake here.
   package overloads `_init_luxparams`/`_init_luxstate`. LuxCore is **not** a direct
   dep (rides on P4ML; test-only in `Project.toml`).
 - AD: `ChainRulesCore.rrule(evaluate, b, X, ps, st)` returns position **and**
-  parameter cotangents; `pullback_ps` is a KA kernel (segmented species
+  parameter cotangents; `evaluate_pb_ps` is a KA kernel (segmented species
   reduction). Runs on GPU.
 
 ### Overlap integrals (`src/integrals/`)
@@ -159,8 +161,9 @@ julia --project -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
   ```
   using Pkg; Pkg.test("AtomicOrbitalKernels"; julia_args=`--check-bounds=auto`)
   ```
-- Param-gradient tests cross-check the analytic `pullback_ps`/`rrule` against
-  ForwardDiff directional derivatives (the `lossζ`/`lossD` pattern). `ForwardDiff`
+- Param-gradient tests cross-check the analytic `evaluate_pb_ps` /
+  `batch_overlap_pb_ps` (and the `rrule`s) against ForwardDiff directional
+  derivatives (the `lossζ`/`lossD` pattern). `ForwardDiff`
   and `LuxCore` are **test-only** deps; source AD uses only `ChainRulesCore`.
 - Reference oracle: `AtomicOrbitalKernels.Reference.batch_S_pair_ref!` (and the
   3C `…batch_V_triple_ref!`).
