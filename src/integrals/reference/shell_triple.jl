@@ -17,8 +17,8 @@ function generate_V_triple!(out, E3, B1, B2, B3)
     B = B2.atom.xyz .* ang2bohr
     C = B3.atom.xyz .* ang2bohr
 
-    N1 = 2 * B1.l + 1
-    N2 = 2 * B2.l + 1
+    N1 = (B1.l + 1) * (B1.l + 2) ÷ 2
+    N2 = (B2.l + 1) * (B2.l + 2) ÷ 2
 
     for (ca, a) in zip(B1.coef, B1.exp)
         for (cb, b) in zip(B2.coef, B2.exp)

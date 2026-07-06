@@ -1,13 +1,13 @@
 # Independent Gauss–Hermite overlap oracle for the Cartesian-Gaussian overlap
-# kernels. Unlike `Reference` (which reproduces the kernels' `N1 = 2l+1` write
-# stride and therefore shares their l ≥ 2 block aliasing), this oracle integrates
-# the Cartesian AO products numerically and writes each shell block with the
-# correct `nbf = (l+1)(l+2)/2` stride. So it agrees with the kernels/Reference for
-# l ≤ 1 and disagrees exactly where the aliasing scrambles the d/f blocks.
+# kernels. It integrates the Cartesian AO products numerically and writes each
+# shell block with the `nbf = (l+1)(l+2)/2` stride, sharing none of the kernels'
+# machinery — no McMurchie–Davidson E-recursion and no flat block indexing — so it
+# is a genuinely independent ground truth (the scalar `Reference`, by contrast,
+# reuses the kernels' flat block layout). It was built to catch an l ≥ 2 write-
+# stride aliasing bug (d/f blocks written with a `2l+1` stride instead of `nbf`).
 #
 # Gauss–Hermite quadrature is exact for the polynomial×Gaussian integrands here
-# (∫ p(x) e^{-x²} dx is exact for deg p ≤ 2n−1), so the oracle is machine-precise
-# and independent of the McMurchie–Davidson E-recursion and the stride indexing.
+# (∫ p(x) e^{-x²} dx is exact for deg p ≤ 2n−1), so the oracle is machine-precise.
 
 using FastGaussQuadrature: gausshermite
 using StaticArrays

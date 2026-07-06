@@ -58,9 +58,9 @@ end
 
 # ---- analytic kernel pullback: ∂coef and ∂α (= ∂/∂ζ through the kernel) ----
 #
-# Mirrors `batch_S_orbital_kernel!` exactly — same MD recursion, same `N1=2l_a+1`
-# stride and block readback — so the gradient matches the (alias-preserving)
-# forward bit for bit. The overlap is bilinear in `coef` (∂coef is a reweight of
+# Mirrors `batch_S_orbital_kernel!` exactly — same MD recursion, same `N1=nbf_a`
+# stride and block readback — so the gradient matches the forward bit for bit.
+# The overlap is bilinear in `coef` (∂coef is a reweight of
 # the same primitive-pair overlaps `G`), and ∂/∂α uses the raised-angular-momentum
 # identity ∂/∂αₐ e^{-αₐr²} = -r²e^{-αₐr²}, i.e.
 #   ∂G/∂αₐ = -(G^{a+2x} + G^{a+2y} + G^{a+2z}),
@@ -84,7 +84,7 @@ end
     nbf_a = nbf[s_a]
     row_off = basis_offset[s_a]
     col_off = basis_offset[s_b]
-    N1 = 2 * l_a + 1
+    N1 = nbf_a
     K = size(coef, 2)
 
     # raised-momentum E-tables (powers up to l+2): same recursion, two orders up
@@ -167,9 +167,9 @@ end
         end
 
         # contract with the output cotangent, mirroring the forward `N1` stride
-        # and block readback `out[i,j] = blk[i + nbf_a*(j-1)]` (so the aliasing for
-        # l≥2 is reproduced identically). Accumulate the block into scalars, then
-        # one atomic per (ip,jp) and parameter.
+        # and block readback `out[i,j] = blk[i + nbf_a*(j-1)]` (with N1 = nbf_a the
+        # reconstruction recovers `(i,j) = (index1,index2)`). Accumulate the block
+        # into scalars, then one atomic per (ip,jp) and parameter.
         Bsum = zero(FT)   # Σ ∂out · Eprod          (∂coef weight)
         Aa = zero(FT)     # Σ ∂out · ∂G/∂αa / pref0 (∂α for bra)
         Ab = zero(FT)     # Σ ∂out · ∂G/∂αb / pref0 (∂α for ket)

@@ -1,6 +1,6 @@
 # Batched 2-center Cartesian-Gaussian overlap for a species-aware
 # `CartesianGTOBasis`. Mirrors `batch_S_kernel!` (same McMurchie–Davidson
-# E-recursion + contraction + block write, including the `N1 = 2l_a+1` linear
+# E-recursion + contraction + block write, including the `N1 = nbf_a` linear
 # stride) but reads per-species primitives: the bra shells use species `sidxA[b]`
 # and the ket shells use species `sidxB[b]`, so each batch element is an overlap
 # between an atom of one species and an atom of another.
@@ -28,7 +28,7 @@
     nbf_b = nbf[s_b]
     row_off = basis_offset[s_a]
     col_off = basis_offset[s_b]
-    N1 = 2 * l_a + 1
+    N1 = nbf_a
     K = size(coef, 2)
 
     E   = MArray{Tuple{2 * Lmax + 2, Lmax + 1, Lmax + 1, 3}, FT}(undef)
@@ -104,7 +104,7 @@
         end
 
         # Contraction: flat (nbf_a × nbf_b) block at `index1 + N1*(index2-1)`,
-        # N1 = 2*l_a + 1. Matches `batch_S_kernel!` (and Reference) bit-for-bit.
+        # N1 = nbf_a. Matches `batch_S_kernel!` (and Reference) bit-for-bit.
         index1 = 1
         for ll1 in l_a:-1:0
             for n1 in 0:(l_a - ll1)

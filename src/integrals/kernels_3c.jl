@@ -22,8 +22,8 @@
     row_off  = basis_offset[s_a]
     col_off  = basis_offset[s_b]
     page_off = basis_offset[s_c]
-    N1 = 2 * l_a + 1
-    N2 = 2 * l_b + 1
+    N1 = nbf_a
+    N2 = nbf_b
 
     E3  = MArray{Tuple{3 * Lmax + 3, Lmax + 1, Lmax + 1, Lmax + 1, 3}, FT}(undef)
     NBF = (Lmax + 1) * (Lmax + 2) ÷ 2
@@ -132,8 +132,9 @@
         end
 
         # Contraction: flat (nbf_a × nbf_b × nbf_c) block at linear position
-        # `index1 + N1*(index2-1) + N1*N2*(index3-1)`. Matches
-        # Reference.generate_V_triple! bit-for-bit (N3 deliberately absent).
+        # `index1 + N1*(index2-1) + N1*N2*(index3-1)`, N1 = nbf_a, N2 = nbf_b (the
+        # Cartesian counts), matching the readback strides below. Matches
+        # Reference.generate_V_triple! bit-for-bit.
         index1 = 1
         for ll1 in l_a:-1:0, n1 in 0:(l_a - ll1)
             m1 = l_a - ll1 - n1
