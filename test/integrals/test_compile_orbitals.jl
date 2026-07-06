@@ -179,6 +179,40 @@ end
     @test all(isfinite, Smix)
 end
 
+@testset "adapt_basis (orbital)" begin
+    sp  = ChemicalSpecies(8)
+    orb = gaussian_orbitals(BasisSet("cc-pvdz", "O 0.0 0.0 0.0");
+                            length_unit = :bohr)
+    cob = compile_basis(orb)
+    c32 = adapt_basis(cob, Array, Float32)
+    @test eltype(c32.coef) == Float32 && eltype(c32.ζ) == Float32
+    @test c32.lengthscale === Float32(cob.lengthscale)
+    @test (c32.Lmax, c32.nshells, c32.K, c32.nbf_total) ==
+          (cob.Lmax, cob.nshells, cob.K, cob.nbf_total)
+    @test c32.zlist == cob.zlist
+    @test c32.ls == cob.ls && c32.basis_offset == cob.basis_offset
+    @test c32.coef ≈ Float32.(cob.coef)
+
+    # default FT keeps the element type
+    c64 = adapt_basis(cob, Array)
+    @test eltype(c64.coef) == Float64
+    @test c64.coef == cob.coef
+
+    # overlap through the adapted Float32 basis matches Float64
+    rng = MersenneTwister(11)
+    rA = _rawB(rng, 3);  rB = _rawB(rng, 3; offset = (3.0, 0.0, 0.0))
+    XA = _pstates(rA, sp);  XB = _pstates(rB, sp)
+    S64 = batch_overlap(cob, XA, XB)
+    out = zeros(Float32, cob.nbf_total, cob.nbf_total, 3)
+    batch_overlap!(out, c32, XA, XB)
+    @test maximum(abs, S64 - out) < 1e-4
+
+    # kernel-launch params are reused when already resident at the right type
+    @test AOK._dev_param(c32.coef, Array, Float32) === c32.coef
+    @test AOK._dev_param(cob.coef, Array, Float32) !== cob.coef
+    @test eltype(AOK._dev_param(cob.coef, Array, Float32)) == Float32
+end
+
 @testset "errors" begin
     # Slater radials carry a radial power the overlap kernels can't integrate
     @test_throws ErrorException compile_basis(slater_orbitals(3, 2; length_unit = :bohr))

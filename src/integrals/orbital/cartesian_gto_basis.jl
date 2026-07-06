@@ -148,3 +148,32 @@ end
 compile_basis(::SlaterTypeOrbitals) =
         error("the overlap kernels integrate plain Gaussians; a Slater-type \
                orbital basis carries a nonzero radial power and is unsupported")
+
+"""
+    adapt_basis(basis::CartesianGTOBasis, ArrayCtor, ::Type{FT}=eltype(basis.coef))
+        -> CartesianGTOBasis
+
+Move a species-aware [`CartesianGTOBasis`](@ref) to a different backend /
+element type (`adapt_basis(cob, CuArray, Float32)`), so the orbital-path
+overlap entry points reuse the device-resident `ζ`/`coef` instead of
+uploading them from the host on every call. `zlist` and the scalars stay on
+the host.
+"""
+function adapt_basis(basis::CartesianGTOBasis, ArrayCtor,
+                     ::Type{FT}=eltype(basis.coef)) where {FT}
+    ls           = ArrayCtor(basis.ls)
+    nbf          = ArrayCtor(basis.nbf)
+    basis_offset = ArrayCtor(basis.basis_offset)
+    ζ            = ArrayCtor(FT.(basis.ζ))
+    coef         = ArrayCtor(FT.(basis.coef))
+    return CartesianGTOBasis{FT, typeof(ls), typeof(coef),
+                             length(basis.zlist), eltype(basis.zlist)}(
+        basis.Lmax, basis.nshells, basis.K, ls, nbf, basis_offset,
+        basis.nbf_total, ζ, coef, basis.zlist, FT(basis.lengthscale))
+end
+
+# Parameter array for a kernel launch: reuse it when already resident on the
+# output's backend at the kernel float type (an `adapt_basis`'d basis), upload
+# otherwise. Both `isa` and `eltype` are static, so the branch folds away.
+_dev_param(A, ArrayCtor, ::Type{FT}) where {FT} =
+        A isa ArrayCtor && eltype(A) == FT ? A : ArrayCtor(FT.(A))

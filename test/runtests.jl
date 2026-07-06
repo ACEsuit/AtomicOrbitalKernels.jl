@@ -4,10 +4,11 @@ using Random
 using Unitful
 
 include("fixtures.jl")
-# detect a GPU backend once (sets `dev` / `gpu_backend`); falls back to
-# `identity`, so the device tests below run on the CPU backend when no GPU is
-# available. Set `TEST_BACKEND` to force a choice.
-include(joinpath(@__DIR__, "utils_gpu.jl"))
+# detect a GPU backend once (memoized in ACETestUtils); `dev = identity` when
+# no GPU is available, so the device tests below run on the CPU backend. Set
+# `TEST_BACKEND` to force a choice.
+using ACETestUtils: gpu_test_backend
+(; gpu_backend) = gpu_test_backend()
 
 # GPU kernels can't be compiled under forced bounds-checking (`--check-bounds=yes`,
 # the default for `Pkg.test`): the inserted BoundsError path needs a device-side

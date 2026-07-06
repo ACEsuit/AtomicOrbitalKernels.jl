@@ -23,3 +23,6 @@ function adapt_basis(basis::CompiledBasis, ArrayCtor, ::Type{FT}=eltype(basis.co
         nbf, basis_offset, basis.nbf_total
     )
 end
+
+# The orbital-path method `adapt_basis(::CartesianGTOBasis, ...)` lives in
+# orbital/cartesian_gto_basis.jl (that type is defined after this file).

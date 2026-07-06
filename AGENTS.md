@@ -96,7 +96,9 @@ one is the most common mistake here.
   `orbital/overlap_2c_grad.jl` (Lux `(ps,st)` value layer + analytic pullback
   kernel + `rrule`, **params only**; positions are `NoTangent`),
   `orbital/overlap_3c.jl` (3C forward kernel + `PState` API, **forward only** —
-  no `(ζ,D)` pullback yet).
+  no `(ζ,D)` pullback yet). `adapt_basis` also covers `CartesianGTOBasis`
+  (method lives in `cartesian_gto_basis.jl`); the entry points reuse
+  device-resident `ζ`/`coef` via `_dev_param`.
 - `Reference` submodule (`integrals/reference/`) — non-exported scalar oracle the
   tests check against.
 
@@ -144,8 +146,11 @@ from the raised-angular-momentum identity, E-tables run to `Lmax+2`) →
 julia --project -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 ```
 
-- **GPU tests**: backend auto-detected (`TEST_BACKEND=CPU|CUDA|Metal|…` to force);
-  no functional GPU → falls back to the CPU backend. `Pkg.test` forces
+- **GPU tests**: backend auto-detected via `ACETestUtils.gpu_test_backend()`
+  (`TEST_BACKEND=CPU|CUDA|Metal|…` to force); no functional GPU → falls back to
+  the CPU backend. F64 device tests run only when `gpu_supports_f64` (not on
+  Metal); `dev`/`cu` downcasts F64→F32, so they build device arrays through the
+  array *type*. `Pkg.test` forces
   `--check-bounds=yes`, which **breaks GPU kernel compilation**, so the GPU
   overlap testset is skipped under it. To exercise the GPU path:
 

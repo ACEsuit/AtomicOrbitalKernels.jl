@@ -1,14 +1,15 @@
 # Device tests for AtomicOrbitals evaluation. The backend (`dev` / `gpu_backend`)
-# comes from utils_gpu.jl; with no functional GPU, `dev = identity` and these
+# comes from ACETestUtils; with no functional GPU, `dev = identity` and these
 # run on the CPU backend (in Float32).
 
 using AtomicOrbitalKernels
 using AtomicOrbitalKernels: evaluate, evaluate_ed
 import AtomicOrbitalKernels as AOK
 using StaticArrays, LuxCore
-using LinearAlgebra, Random, Test 
+using LinearAlgebra, Random, Test
 rng = MersenneTwister(1234)
-include(joinpath(@__DIR__, "..", "utils_gpu.jl"))
+using ACETestUtils: gpu_test_backend
+(; dev, gpu_backend) = gpu_test_backend()
 
 @testset "AtomicOrbitals eval ($(gpu_backend), Float32)" begin
     basis = gaussian_orbitals(; length_unit = :bohr)
