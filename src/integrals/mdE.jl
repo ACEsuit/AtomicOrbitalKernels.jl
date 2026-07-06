@@ -6,10 +6,11 @@
 # Used by `batch_S_kernel!` (kernels_2c.jl), `batch_S_orbital_kernel!`
 # (orbital/overlap_2c.jl), `batch_S_orbital_pb_kernel!`
 # (orbital/overlap_2c_grad.jl — same recursion with raised bounds `l+3` for the
-# ∂/∂ζ tables), `batch_V_kernel!` (kernels_3c.jl) and `batch_V_orbital_kernel!`
-# (orbital/overlap_3c.jl). The scalar `Reference` submodule keeps its own
-# axis-first CPU implementation (reference/ecoeffs.jl) on purpose — it is the
-# independent cross-check, not a call site.
+# ∂/∂ζ tables), `batch_V_kernel!` (kernels_3c.jl), `batch_V_orbital_kernel!`
+# (orbital/overlap_3c.jl) and `batch_V_orbital_pb_kernel!`
+# (orbital/overlap_3c_grad.jl — raised bounds). The scalar `Reference` submodule
+# keeps its own axis-first CPU implementation (reference/ecoeffs.jl) on
+# purpose — it is the independent cross-check, not a call site.
 #
 # Positions/centers are passed as length-3 indexables (`SVector`); the xyz axis
 # is the slowest scratch dimension so the t-loop is stride-1 per axis.
@@ -159,7 +160,10 @@ end
             end
             for j in 1:jmax, i in 2:imax
                 E3[1, i, j, k, ax] = QA * E3[1, i-1, j, k, ax] + E3[2, i-1, j, k, ax]
-                for t in 2:i+j+k-1
+                # t ≤ i+j+k-2, the last nonzero coefficient: the `t+1` read below
+                # then stays within the source cell's zero-guard band (one step
+                # further would read an uninitialized scratch slot)
+                for t in 2:i+j+k-2
                     tFT = FT(t)
                     E3[t, i, j, k, ax] = QA * E3[t, i-1, j, k, ax] +
                                          tFT * E3[t+1, i-1, j, k, ax] +
