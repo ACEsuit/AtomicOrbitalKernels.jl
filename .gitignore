@@ -3,3 +3,4 @@ bench/Manifest*.toml
 benchmark/Manifest*.toml
 docs/Manifest*.toml
 scaling/Manifest.toml
+examples/learnbasis/Manifest*.toml
