@@ -55,30 +55,7 @@
         prefac = ca * cb * cc * (π_FT / q)^pow15
 
         _mdE_3c!(E3, l_a + 1, l_b + 1, l_c + 1, A, B, C, P, Q, μ, ν, oo2q)
-
-        # Contraction: flat (nbf_a × nbf_b × nbf_c) block at linear position
-        # `index1 + N1*(index2-1) + N1*N2*(index3-1)`, N1 = nbf_a, N2 = nbf_b (the
-        # Cartesian counts), matching the readback strides below. Matches
-        # Reference.generate_V_triple! bit-for-bit.
-        index1 = 1
-        for ll1 in l_a:-1:0, n1 in 0:(l_a - ll1)
-            m1 = l_a - ll1 - n1
-            index2 = 1
-            for ll2 in l_b:-1:0, n2 in 0:(l_b - ll2)
-                m2 = l_b - ll2 - n2
-                index3 = 1
-                for ll3 in l_c:-1:0, n3 in 0:(l_c - ll3)
-                    m3 = l_c - ll3 - n3
-                    lin = index1 + N1 * (index2 - 1) + N1 * N2 * (index3 - 1)
-                    blk[lin] += E3[1, ll1+1, ll2+1, ll3+1, 1] *
-                                E3[1, m1+1,  m2+1,  m3+1,  2] *
-                                E3[1, n1+1,  n2+1,  n3+1,  3] * prefac
-                    index3 += 1
-                end
-                index2 += 1
-            end
-            index1 += 1
-        end
+        _contract_V_3c!(blk, E3, l_a, l_b, l_c, N1, N2, prefac)
     end
 
     @inbounds for kk in 1:nbf_c, jj in 1:nbf_b, ii in 1:nbf_a
