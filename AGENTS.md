@@ -96,7 +96,9 @@ one is the most common mistake here.
   `orbital/overlap_2c_grad.jl` (Lux `(ps,st)` value layer + analytic pullback
   kernel + `rrule`, **params only**; positions are `NoTangent`),
   `orbital/overlap_3c.jl` (3C forward kernel + `PState` API, **forward only** —
-  no `(ζ,D)` pullback yet).
+  no `(ζ,D)` pullback yet). `adapt_basis` also covers `CartesianGTOBasis`
+  (method lives in `cartesian_gto_basis.jl`); the entry points reuse
+  device-resident `ζ`/`coef` via `_dev_param`.
 - `Reference` submodule (`integrals/reference/`) — non-exported scalar oracle the
   tests check against.
 

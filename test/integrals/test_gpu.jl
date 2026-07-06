@@ -4,6 +4,10 @@
 
 using AtomicOrbitalKernels
 using AtomicOrbitalKernels: Reference
+using GaussianBasis: BasisSet
+using AtomsBase: ChemicalSpecies
+using DecoratedParticles: PState
+using StaticArrays
 using Random
 using Unitful
 include(joinpath(@__DIR__, "..", "utils_gpu.jl"))
@@ -45,4 +49,50 @@ end
     batch_overlap_3c!(out_dev, bc_dev, posA_u, posB_u, posC_u)
     out_h = Array(out_dev)
     @test maximum(abs, out_ref .- out_h) < 1f-3
+end
+
+# --- orbital path (species-aware CartesianGTOBasis, PState inputs); the
+# device result is checked against the same kernel run on the CPU in Float64 ---
+
+_ps_dev(raw, sp) =
+    [ PState(𝐫 = SVector{3,Float64}(raw[1, i], raw[2, i], raw[3, i]), S = sp)
+      for i in 1:size(raw, 2) ]
+
+@testset "2C orbital overlap ($(gpu_backend), Float32)" begin
+    rng = MersenneTwister(303)
+    orb = gaussian_orbitals(BasisSet("def2-svp", "Si 0.0 0.0 0.0");
+                            length_unit = :bohr)
+    cob = compile_basis(orb)
+    sp  = ChemicalSpecies(14)
+    N   = cob.nbf_total
+    B   = 64
+    rA = randn(rng, 3, B) .* 0.5
+    rB = randn(rng, 3, B) .* 0.5;  rB[1, :] .+= 1.5
+    XA = _ps_dev(rA, sp);  XB = _ps_dev(rB, sp)
+    ref = batch_overlap(cob, XA, XB)              # CPU, Float64
+
+    cob_dev = adapt_basis(cob, dev, Float32)
+    out_dev = dev(zeros(Float32, N, N, B))
+    batch_overlap!(out_dev, cob_dev, XA, XB)
+    @test maximum(abs, ref .- Array(out_dev)) < 1f-3
+end
+
+@testset "3C orbital overlap ($(gpu_backend), Float32)" begin
+    rng = MersenneTwister(404)
+    orb = gaussian_orbitals(BasisSet("def2-svp", "Si 0.0 0.0 0.0");
+                            length_unit = :bohr)
+    cob = compile_basis(orb)
+    sp  = ChemicalSpecies(14)
+    N   = cob.nbf_total
+    B   = 4    # 3C tensor: N^3 * B Float32 ~= a few MB
+    rA = randn(rng, 3, B) .* 0.5
+    rB = randn(rng, 3, B) .* 0.5;  rB[1, :] .+= 1.5
+    rC = randn(rng, 3, B) .* 0.5;  rC[2, :] .+= 1.0
+    XA = _ps_dev(rA, sp);  XB = _ps_dev(rB, sp);  XC = _ps_dev(rC, sp)
+    ref = batch_overlap(cob, XA, XB, XC)          # CPU, Float64
+
+    cob_dev = adapt_basis(cob, dev, Float32)
+    out_dev = dev(zeros(Float32, N, N, N, B))
+    batch_overlap!(out_dev, cob_dev, XA, XB, XC)
+    @test maximum(abs, ref .- Array(out_dev)) < 1f-3
 end
