@@ -17,7 +17,8 @@ using AtomsBase: ChemicalSpecies
 using DecoratedParticles: PState
 using StaticArrays, Random, Unitful, Test
 
-include("quad_oracle.jl")   # _gh_nodes, _quad_triple_block!
+# _gh_nodes, _quad_triple_block! (already loaded when run via runtests.jl)
+isdefined(Main, :_quad_triple_block!) || include("quad_oracle.jl")
 
 _ps3(raw, sp) =
     [ PState(𝐫 = SVector{3,Float64}(raw[1, i], raw[2, i], raw[3, i]),
