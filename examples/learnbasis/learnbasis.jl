@@ -21,7 +21,7 @@ using StaticArrays, LinearAlgebra, Random, Printf
 
 basisname = "sto-3g"        # all-K=3 contractions: every D entry matters
 rvdw      = 1.7             # vdW radius of C in Å
-rrange    = (0.8, 4.0)      # pair distances in units of rvdw
+rrange    = (0.5, 4.0)      # pair distances in units of rvdw
 B_train   = 1000
 B_test    = 1000
 pert      = 0.1             # ~10% relative parameter perturbation
