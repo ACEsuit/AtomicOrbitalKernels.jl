@@ -90,7 +90,6 @@ end
     # raised-momentum E-tables (powers up to l+2): same recursion, two orders up
     Lr = Lmax + 2
     E = MArray{Tuple{2 * Lr + 2, Lr + 1, Lr + 1, 3}, FT}(undef)
-    Tmax = 2 * Lr + 2
     la1 = l_a + 3
     lb1 = l_b + 3
 
@@ -98,8 +97,8 @@ end
     π_FT = FT(π)
     pow15 = FT(1.5)
 
-    Ax = posA[1, b]; Ay = posA[2, b]; Az = posA[3, b]
-    Bx = posB[1, b]; By = posB[2, b]; Bz = posB[3, b]
+    A = SVector(posA[1, b], posA[2, b], posA[3, b])
+    B = SVector(posB[1, b], posB[2, b], posB[3, b])
 
     # Unlike the forward kernel, we do NOT skip `coef==0` (padded) primitives:
     # a padded slot contributes nothing to the value (`ca·cb = 0`) but has a
@@ -113,58 +112,12 @@ end
         αa = α[s_a, ip, σa]
         αb = α[s_b, jp, σb]
 
-        p = αa + αb
-        Px = (αa * Ax + αb * Bx) / p
-        Py = (αa * Ay + αb * By) / p
-        Pz = (αa * Az + αb * Bz) / p
-        μ = αa * αb / p
+        p, P, μ = _gaussprod_2c(αa, αb, A, B)
         oo2p = half_oo / p
         pref0 = (π_FT / p)^pow15
 
-        for ax in 1:3
-            P_ax = ax == 1 ? Px : (ax == 2 ? Py : Pz)
-            A_ax = ax == 1 ? Ax : (ax == 2 ? Ay : Az)
-            B_ax = ax == 1 ? Bx : (ax == 2 ? By : Bz)
-            AB = A_ax - B_ax
-            PA = P_ax - A_ax
-            PB = P_ax - B_ax
-
-            for jb in 1:lb1, ia in 1:la1
-                ab = ia + jb
-                if ab <= Tmax
-                    E[ab, ia, jb, ax] = zero(FT)
-                end
-                if ab + 1 <= Tmax
-                    E[ab+1, ia, jb, ax] = zero(FT)
-                end
-            end
-            E[1, 1, 1, ax] = exp(-μ * AB * AB)
-
-            for i in 2:la1
-                E[1, i, 1, ax] = PA * E[1, i-1, 1, ax] + E[2, i-1, 1, ax]
-                for t in 2:i
-                    tFT = FT(t)
-                    E[t, i, 1, ax] = PA * E[t, i-1, 1, ax] + tFT * E[t+1, i-1, 1, ax] +
-                                     oo2p * E[t-1, i-1, 1, ax]
-                end
-            end
-            for j in 2:lb1
-                E[1, 1, j, ax] = PB * E[1, 1, j-1, ax] + E[2, 1, j-1, ax]
-                for t in 2:j
-                    tFT = FT(t)
-                    E[t, 1, j, ax] = PB * E[t, 1, j-1, ax] + tFT * E[t+1, 1, j-1, ax] +
-                                     oo2p * E[t-1, 1, j-1, ax]
-                end
-                for i in 2:la1
-                    E[1, i, j, ax] = PA * E[1, i-1, j, ax] + E[2, i-1, j, ax]
-                    for t in 2:i+j-1
-                        tFT = FT(t)
-                        E[t, i, j, ax] = PA * E[t, i-1, j, ax] + tFT * E[t+1, i-1, j, ax] +
-                                         oo2p * E[t-1, i-1, j, ax]
-                    end
-                end
-            end
-        end
+        # same shared recursion as the forward, with raised bounds `l+3`
+        _mdE_2c!(E, la1, lb1, A, B, P, μ, oo2p)
 
         # contract with the output cotangent, mirroring the forward `N1` stride
         # and block readback `out[i,j] = blk[i + nbf_a*(j-1)]` (with N1 = nbf_a the

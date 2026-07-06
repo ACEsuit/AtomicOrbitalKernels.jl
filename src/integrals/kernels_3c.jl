@@ -28,7 +28,6 @@
     E3  = MArray{Tuple{3 * Lmax + 3, Lmax + 1, Lmax + 1, Lmax + 1, 3}, FT}(undef)
     NBF = (Lmax + 1) * (Lmax + 2) ÷ 2
     blk = MArray{Tuple{NBF * NBF * NBF}, FT}(undef)
-    Tmax = 3 * Lmax + 3
 
     half  = FT(0.5)
     π_FT  = FT(π)
@@ -38,9 +37,9 @@
         blk[k] = zero(FT)
     end
 
-    Ax = posA[1, b]; Ay = posA[2, b]; Az = posA[3, b]
-    Bx = posB[1, b]; By = posB[2, b]; Bz = posB[3, b]
-    Cx = posC[1, b]; Cy = posC[2, b]; Cz = posC[3, b]
+    A = SVector(posA[1, b], posA[2, b], posA[3, b])
+    B = SVector(posB[1, b], posB[2, b], posB[3, b])
+    C = SVector(posC[1, b], posC[2, b], posC[3, b])
 
     off_a = prim_offset[s_a]; npa = nprim[s_a]
     off_b = prim_offset[s_b]; npb = nprim[s_b]
@@ -51,85 +50,11 @@
         cb = coef[off_b + jp]; αb = α[off_b + jp]
         cc = coef[off_c + kp]; αc = α[off_c + kp]
 
-        p = αa + αb
-        Px = (αa * Ax + αb * Bx) / p
-        Py = (αa * Ay + αb * By) / p
-        Pz = (αa * Az + αb * Bz) / p
-        q = p + αc
-        Qx = (p * Px + αc * Cx) / q
-        Qy = (p * Py + αc * Cy) / q
-        Qz = (p * Pz + αc * Cz) / q
-        μ  = αa * αb / p
-        ν  = p  * αc / q
+        q, Q, P, μ, ν = _gaussprod_3c(αa, αb, αc, A, B, C)
         oo2q = half / q
         prefac = ca * cb * cc * (π_FT / q)^pow15
 
-        for ax in 1:3
-            P_ax = ax == 1 ? Px : (ax == 2 ? Py : Pz)
-            Q_ax = ax == 1 ? Qx : (ax == 2 ? Qy : Qz)
-            A_ax = ax == 1 ? Ax : (ax == 2 ? Ay : Az)
-            B_ax = ax == 1 ? Bx : (ax == 2 ? By : Bz)
-            C_ax = ax == 1 ? Cx : (ax == 2 ? Cy : Cz)
-            AB = A_ax - B_ax
-            PC = P_ax - C_ax
-            QA = Q_ax - A_ax
-            QB = Q_ax - B_ax
-            QC = Q_ax - C_ax
-
-            for kc in 1:(l_c + 1), jb in 1:(l_b + 1), ia in 1:(l_a + 1)
-                abc = ia + jb + kc - 1
-                if abc <= Tmax
-                    E3[abc, ia, jb, kc, ax] = zero(FT)
-                end
-                if abc + 1 <= Tmax
-                    E3[abc+1, ia, jb, kc, ax] = zero(FT)
-                end
-            end
-            E3[1, 1, 1, 1, ax] = exp(-μ * AB * AB - ν * PC * PC)
-
-            for i in 2:(l_a + 1)
-                E3[1, i, 1, 1, ax] = QA * E3[1, i-1, 1, 1, ax] + E3[2, i-1, 1, 1, ax]
-                for t in 2:i
-                    tFT = FT(t)
-                    E3[t, i, 1, 1, ax] = QA * E3[t, i-1, 1, 1, ax] + tFT * E3[t+1, i-1, 1, 1, ax] + oo2q * E3[t-1, i-1, 1, 1, ax]
-                end
-            end
-            for j in 2:(l_b + 1)
-                E3[1, 1, j, 1, ax] = QB * E3[1, 1, j-1, 1, ax] + E3[2, 1, j-1, 1, ax]
-                for t in 2:j
-                    tFT = FT(t)
-                    E3[t, 1, j, 1, ax] = QB * E3[t, 1, j-1, 1, ax] + tFT * E3[t+1, 1, j-1, 1, ax] + oo2q * E3[t-1, 1, j-1, 1, ax]
-                end
-                for i in 2:(l_a + 1)
-                    E3[1, i, j, 1, ax] = QA * E3[1, i-1, j, 1, ax] + E3[2, i-1, j, 1, ax]
-                    for t in 2:i+j-1
-                        tFT = FT(t)
-                        E3[t, i, j, 1, ax] = QA * E3[t, i-1, j, 1, ax] + tFT * E3[t+1, i-1, j, 1, ax] + oo2q * E3[t-1, i-1, j, 1, ax]
-                    end
-                end
-            end
-            for k in 2:(l_c + 1)
-                E3[1, 1, 1, k, ax] = QC * E3[1, 1, 1, k-1, ax] + E3[2, 1, 1, k-1, ax]
-                for t in 2:k
-                    tFT = FT(t)
-                    E3[t, 1, 1, k, ax] = QC * E3[t, 1, 1, k-1, ax] + tFT * E3[t+1, 1, 1, k-1, ax] + oo2q * E3[t-1, 1, 1, k-1, ax]
-                end
-                for j in 2:(l_b + 1)
-                    E3[1, 1, j, k, ax] = QB * E3[1, 1, j-1, k, ax] + E3[2, 1, j-1, k, ax]
-                    for t in 2:j+k-1
-                        tFT = FT(t)
-                        E3[t, 1, j, k, ax] = QB * E3[t, 1, j-1, k, ax] + tFT * E3[t+1, 1, j-1, k, ax] + oo2q * E3[t-1, 1, j-1, k, ax]
-                    end
-                end
-                for j in 1:(l_b + 1), i in 2:(l_a + 1)
-                    E3[1, i, j, k, ax] = QA * E3[1, i-1, j, k, ax] + E3[2, i-1, j, k, ax]
-                    for t in 2:i+j+k-1
-                        tFT = FT(t)
-                        E3[t, i, j, k, ax] = QA * E3[t, i-1, j, k, ax] + tFT * E3[t+1, i-1, j, k, ax] + oo2q * E3[t-1, i-1, j, k, ax]
-                    end
-                end
-            end
-        end
+        _mdE_3c!(E3, l_a + 1, l_b + 1, l_c + 1, A, B, C, P, Q, μ, ν, oo2q)
 
         # Contraction: flat (nbf_a × nbf_b × nbf_c) block at linear position
         # `index1 + N1*(index2-1) + N1*N2*(index3-1)`, N1 = nbf_a, N2 = nbf_b (the
