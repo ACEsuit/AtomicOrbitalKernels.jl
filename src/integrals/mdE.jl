@@ -6,9 +6,10 @@
 # Used by `batch_S_kernel!` (kernels_2c.jl), `batch_S_orbital_kernel!`
 # (orbital/overlap_2c.jl), `batch_S_orbital_pb_kernel!`
 # (orbital/overlap_2c_grad.jl — same recursion with raised bounds `l+3` for the
-# ∂/∂ζ tables) and `batch_V_kernel!` (kernels_3c.jl). The scalar `Reference`
-# submodule keeps its own axis-first CPU implementation (reference/ecoeffs.jl)
-# on purpose — it is the independent cross-check, not a call site.
+# ∂/∂ζ tables), `batch_V_kernel!` (kernels_3c.jl) and `batch_V_orbital_kernel!`
+# (orbital/overlap_3c.jl). The scalar `Reference` submodule keeps its own
+# axis-first CPU implementation (reference/ecoeffs.jl) on purpose — it is the
+# independent cross-check, not a call site.
 #
 # Positions/centers are passed as length-3 indexables (`SVector`); the xyz axis
 # is the slowest scratch dimension so the t-loop is stride-1 per axis.
@@ -194,6 +195,36 @@ end
                 end
                 index1 += 1
             end
+        end
+    end
+    return nothing
+end
+
+# Contraction of the 3-center E-tables into the flat `(nbf_a × nbf_b × nbf_c)`
+# block at linear position `index1 + N1*(index2-1) + N1*N2*(index3-1)`,
+# `N1 = nbf_a`, `N2 = nbf_b` (the Cartesian counts), so the write strides match
+# the block readback for every l. Matches Reference.generate_V_triple!
+# bit-for-bit.
+@inline function _contract_V_3c!(blk, E3, l_a, l_b, l_c, N1, N2, prefac)
+    @inbounds begin
+        index1 = 1
+        for ll1 in l_a:-1:0, n1 in 0:(l_a - ll1)
+            m1 = l_a - ll1 - n1
+            index2 = 1
+            for ll2 in l_b:-1:0, n2 in 0:(l_b - ll2)
+                m2 = l_b - ll2 - n2
+                index3 = 1
+                for ll3 in l_c:-1:0, n3 in 0:(l_c - ll3)
+                    m3 = l_c - ll3 - n3
+                    lin = index1 + N1 * (index2 - 1) + N1 * N2 * (index3 - 1)
+                    blk[lin] += E3[1, ll1+1, ll2+1, ll3+1, 1] *
+                                E3[1, m1+1,  m2+1,  m3+1,  2] *
+                                E3[1, n1+1,  n2+1,  n3+1,  3] * prefac
+                    index3 += 1
+                end
+                index2 += 1
+            end
+            index1 += 1
         end
     end
     return nothing

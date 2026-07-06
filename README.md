@@ -120,6 +120,9 @@ is the path used above and the one that supports parameter gradients:
 ```julia
 cob = compile_basis(basis)             # -> species-aware CartesianGTOBasis
 S   = batch_overlap(cob, XA, XB)       # inference; use the ps/st form to differentiate
+
+XC  = [ PState(𝐫 = 0.4 .* @SVector(randn(3)) .+ SA[0.7,1.2,0.3], S = sp) for _ = 1:16 ]
+V   = batch_overlap(cob, XA, XB, XC)   # 3-center overlap (forward only; O(N³·B) output)
 ```
 
 **GaussianBasis geometry-in.** For interop / pure inference from an existing
@@ -159,7 +162,7 @@ batch_overlap_3c!(out3, basis, posA[:, 1:128], posB[:, 1:128], posC)
 | ------------------------------------------ | ------------------------------------------------- |
 | 2-center overlap (Cartesian)               | **Implemented** — orbital-native + geometry-in    |
 | 2-center overlap parameter gradients `(ζ,D)` | **Implemented** — orbital-native path            |
-| 3-center overlap (Cartesian)               | **Implemented** — geometry-in path                |
+| 3-center overlap (Cartesian)               | **Implemented** — orbital-native + geometry-in    |
 | Overlap position gradients                 | Not implemented                                   |
 | Spherical-basis output                     | Not implemented (Cartesian only)                  |
 | Kinetic, nuclear attraction, multipoles, ERIs | Not implemented                                |

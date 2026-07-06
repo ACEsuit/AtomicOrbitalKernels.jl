@@ -82,11 +82,11 @@ one is the most common mistake here.
 - McMurchie–Davidson E-coefficient recursion; one work-item per
   `(b, shell_a, shell_b[, shell_c])`; per-work-item `MArray` scratch sized by
   `Val{Lmax}`.
-- The recursion + Gaussian-product + 2C contraction helpers are shared
+- The recursion + Gaussian-product + contraction helpers are shared
   (`mdE.jl`: `_mdE_2c!`/`_mdE_3c!`/`_gaussprod_2c`/`_gaussprod_3c`/
-  `_contract_S_2c!`, `@inline`, allocation-free, KA-legal); all four kernels
-  drive them (the pullback with raised bounds `l+3`). New overlap kernels
-  should call these rather than re-inline the recursion.
+  `_contract_S_2c!`/`_contract_V_3c!`, `@inline`, allocation-free, KA-legal);
+  all five kernels drive them (the pullback with raised bounds `l+3`). New
+  overlap kernels should call these rather than re-inline the recursion.
 - GB path: `compiled_basis.jl` (`CompiledBasis`), `kernels_2c.jl` /
   `kernels_3c.jl`, `adapt.jl` (`adapt_basis` for GPU residency), `units.jl`
   (Unitful → Bohr).
@@ -94,7 +94,9 @@ one is the most common mistake here.
   species-aware: shared shell structure + per-species `ζ` + derived `coef`;
   **`D` is not stored**), `orbital/overlap_2c.jl` (forward kernel + `PState` API),
   `orbital/overlap_2c_grad.jl` (Lux `(ps,st)` value layer + analytic pullback
-  kernel + `rrule`, **params only**; positions are `NoTangent`).
+  kernel + `rrule`, **params only**; positions are `NoTangent`),
+  `orbital/overlap_3c.jl` (3C forward kernel + `PState` API, **forward only** —
+  no `(ζ,D)` pullback yet).
 - `Reference` submodule (`integrals/reference/`) — non-exported scalar oracle the
   tests check against.
 
@@ -159,7 +161,8 @@ julia --project -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 ## Scope: implemented vs not
 
 Implemented: orbital evaluation (value + ∇, params + positions diff), 2C overlap
-(GB + orbital/differentiable paths), 3C overlap (GB path only). **Not**
-implemented: spherical-basis output, kinetic / nuclear-attraction / multipoles /
-ERIs, 3C on the orbital path, Cartesian→spherical (`c2s`). Add integrals only as
-needed; no GaussianBasis.jl fallbacks.
+(GB + orbital/differentiable paths), 3C overlap (GB + orbital paths; orbital 3C
+is forward-only, no `(ζ,D)` pullback). **Not** implemented: spherical-basis
+output, kinetic / nuclear-attraction / multipoles / ERIs, the 3C `(ζ,D)`
+pullback, Cartesian→spherical (`c2s`). Add integrals only as needed; no
+GaussianBasis.jl fallbacks.
