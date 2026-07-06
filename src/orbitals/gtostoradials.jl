@@ -252,8 +252,8 @@ const _PB_NGROUPS = 128
     end
 end
 
-function pullback_ps(∂R, basis::GSRadials, r::AbstractVector{<:Real},
-                     sidx::AbstractVector{<:Integer}, ps, st)
+function evaluate_pb_ps(∂R, basis::GSRadials, r::AbstractVector{<:Real},
+                        sidx::AbstractVector{<:Integer}, ps, st)
     T = promote_type(eltype(∂R), eltype(ps.ζ), eltype(ps.D))
     ∂ζ = fill!(similar(ps.ζ, T), zero(T))
     ∂D = fill!(similar(ps.D, T), zero(T))
@@ -266,5 +266,5 @@ function pullback_ps(∂R, basis::GSRadials, r::AbstractVector{<:Real},
     return (ζ = ∂ζ, D = ∂D)
 end
 
-pullback_ps(∂R, basis::GSRadials, X::AbstractVector, ps, st) =
-        pullback_ps(∂R, basis, _radii(X), _species_indices(basis, X), ps, st)
+evaluate_pb_ps(∂R, basis::GSRadials, X::AbstractVector, ps, st) =
+        evaluate_pb_ps(∂R, basis, _radii(X), _species_indices(basis, X), ps, st)

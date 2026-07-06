@@ -184,7 +184,7 @@ GPU when `X`, `ps`, and `st` are device arrays.
 
 See [`evaluate_ed`](@ref) for values together with spatial gradients; gradients
 w.r.t. positions and parameters are available through ChainRulesCore
-(`rrule` / `pullback_ps`).
+(`rrule` / `evaluate_pb_ps`).
 """
 evaluate(basis::AtomicOrbitals, X::AbstractVector) =
         evaluate(basis, X, _static_params(basis), _static_state(basis))
@@ -251,8 +251,8 @@ end
     @inbounds KA.@atomic ∂Rnl[j, iR[i]] += ∂Rnlm[j, i] * Ylm[j, iY[i]]
 end
 
-function pullback_ps(∂Rnlm, basis::AtomicOrbitals, Rs::AbstractVector{<:SVector{3}},
-                     sidx::AbstractVector{<:Integer}, ps::NamedTuple, st)
+function evaluate_pb_ps(∂Rnlm, basis::AtomicOrbitals, Rs::AbstractVector{<:SVector{3}},
+                        sidx::AbstractVector{<:Integer}, ps::NamedTuple, st)
     T = promote_type(eltype(∂Rnlm), eltype(eltype(Rs)))
     Rs, _ = _to_native(basis, Rs)        # native (Bohr) frame; params see Bohr r
     r = norm.(Rs)
@@ -262,18 +262,18 @@ function pullback_ps(∂Rnlm, basis::AtomicOrbitals, Rs::AbstractVector{<:SVecto
     KA.synchronize(backend)
     _aorb_pbrad_ka!(backend)(∂Rnl, ∂Rnlm, Ylm, st.iR, st.iY; ndrange = size(∂Rnlm))
     KA.synchronize(backend)
-    return (Rnl = pullback_ps(∂Rnl, basis.Rnl, r, sidx, ps.Rnl, st.Rnl),
+    return (Rnl = evaluate_pb_ps(∂Rnl, basis.Rnl, r, sidx, ps.Rnl, st.Rnl),
             Ylm = NamedTuple())
 end
 
-pullback_ps(∂Rnlm, basis::AtomicOrbitals, X::AbstractVector, ps::NamedTuple, st) =
-        pullback_ps(∂Rnlm, basis, _positions(X), _species_indices(basis, X), ps, st)
+evaluate_pb_ps(∂Rnlm, basis::AtomicOrbitals, X::AbstractVector, ps::NamedTuple, st) =
+        evaluate_pb_ps(∂Rnlm, basis, _positions(X), _species_indices(basis, X), ps, st)
 
 # ---- ChainRules: differentiable w.r.t. positions X and params ps ----
 #
 # The X-pullback uses the spatial Jacobian `dRnlm` from `evaluate_ed` (forward
 # mode in X; each output depends only on its own point); the param-pullback uses
-# `pullback_ps`. P4ML's generic rrule (on `AbstractP4MLBasis`) recomputes ∂X with
+# `evaluate_pb_ps`. P4ML's generic rrule (on `AbstractP4MLBasis`) recomputes ∂X with
 # *static* params; this more-specific method uses the actual `ps` and avoids that.
 
 # parallel over the point j (the large dim), serial over orbitals i (the small
@@ -309,7 +309,7 @@ function _aorb_rrule(basis::AtomicOrbitals, X, Rs, sidx, ps, st)
     function _pb(_∂)
         ∂Rnlm = unthunk(_∂)
         ∂X  = _xtangent(X, _aorb_pullback_x(∂Rnlm, dRnlm))
-        ∂ps = pullback_ps(∂Rnlm, basis, Rs, sidx, ps, st)
+        ∂ps = evaluate_pb_ps(∂Rnlm, basis, Rs, sidx, ps, st)
         return (NoTangent(), NoTangent(), ∂X, ∂ps, NoTangent())
     end
     return Rnlm, _pb

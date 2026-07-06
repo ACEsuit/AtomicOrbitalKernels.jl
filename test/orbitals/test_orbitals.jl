@@ -52,7 +52,7 @@ using DecoratedParticles: PState, VState
             # parameter pullback (ζ and D), checked against ForwardDiff
             # directional derivatives (same quantity as the analytic pullback)
             ∂P = randn(length(X), Nb)
-            ∂ps = AOK.pullback_ps(∂P, basis, X, ps, st)
+            ∂ps = AOK.evaluate_pb_ps(∂P, basis, X, ps, st)
             ζ = ps.Rnl.ζ;  D = ps.Rnl.D
             V = randn(size(ζ));  W = randn(size(D))
             lossζ(ζi) = sum(∂P .* evaluate(basis, X,
@@ -118,7 +118,7 @@ end
             # The 3D perturbation covers every species slice; each point feeds
             # only its own species, so this is exactly the per-species pullback.
             ∂P = randn(nX, Nb)
-            ∂ps = AOK.pullback_ps(∂P, basis, X, ps, st)
+            ∂ps = AOK.evaluate_pb_ps(∂P, basis, X, ps, st)
             @test size(∂ps.Rnl.ζ) == size(ps.Rnl.ζ)
             ζ = ps.Rnl.ζ;  D = ps.Rnl.D
             V = randn(size(ζ));  W = randn(size(D))
@@ -149,8 +149,9 @@ end
             Rr2, _ = evaluate_ed(basis.Rnl, X, ps.Rnl, st.Rnl)
             @test Rr2 ≈ Rr
             ∂Rr = randn(nX, length(basis.Rnl))
-            @test AOK.pullback_ps(∂Rr, basis.Rnl, X, ps.Rnl, st.Rnl).ζ ≈
-                  AOK.pullback_ps(∂Rr, basis.Rnl, AOK._radii(X), sidxX, ps.Rnl, st.Rnl).ζ
+            @test AOK.evaluate_pb_ps(∂Rr, basis.Rnl, X, ps.Rnl, st.Rnl).ζ ≈
+                  AOK.evaluate_pb_ps(∂Rr, basis.Rnl, AOK._radii(X), sidxX,
+                                     ps.Rnl, st.Rnl).ζ
         end
     end
 
@@ -158,7 +159,7 @@ end
     basis = gaussian_orbitals(4, 3; length_unit = :bohr, nspecies = 3, zlist = zlist)
     Xsub = [ PState(𝐫 = (@SVector randn(3)), S = rand(rng, (6, 1))) for _ = 1:12 ]
     ps = AOK._static_params(basis);  st = AOK._static_state(basis)
-    ∂ps = AOK.pullback_ps(randn(12, length(basis)), basis, Xsub, ps, st)
+    ∂ps = AOK.evaluate_pb_ps(randn(12, length(basis)), basis, Xsub, ps, st)
     σ8 = AOK._z2i(basis.Rnl, 8)
     @test all(iszero, ∂ps.Rnl.ζ[:, :, σ8])
     @test all(iszero, ∂ps.Rnl.D[:, :, σ8])

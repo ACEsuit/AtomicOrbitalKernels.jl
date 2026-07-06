@@ -35,7 +35,7 @@ using GaussianBasis: BasisSet, SphericalShell
 # based on both CPU and GPU backends.
 import Polynomials4ML: AbstractP4MLBasis,
                        _valtype, _gradtype,
-                       _init_luxparams, _init_luxstate, pullback_ps,
+                       _init_luxparams, _init_luxstate,
                        _generate_input
 # NB: `_static_params`/`_static_state` are intentionally NOT imported — this
 # package owns them (see utils.jl), so we can give them `Any` fallbacks.
@@ -73,6 +73,7 @@ include("integrals/orbital/cartesian_gto_basis.jl")
 include("integrals/orbital/overlap_2c.jl")
 include("integrals/orbital/overlap_2c_grad.jl")
 include("integrals/orbital/overlap_3c.jl")
+include("integrals/orbital/overlap_3c_grad.jl")
 
 export compile_basis, adapt_basis,
        batch_overlap!, batch_overlap,
