@@ -3,8 +3,8 @@
 # One work-item per (batch_idx, shell_a, shell_b). Each does the full
 # E-coefficient recursion (McMurchie–Davidson / Obara–Saika) plus contraction
 # using per-work-item stack-allocated scratch sized at compile time by
-# `Val{Lmax}`. The xyz axis is the slowest scratch dimension so the t-loop is
-# stride-1 per axis (enables `@simd` on CPU; no effect on GPU).
+# `Val{Lmax}`. The recursion and contraction live in the shared helpers
+# (`integrals/mdE.jl`), which this kernel drives with `imax/jmax = l+1`.
 #
 # Positions arrive in Bohr (units stripped + converted at the wrapper).
 
@@ -26,7 +26,6 @@
 
     E   = MArray{Tuple{2 * Lmax + 2, Lmax + 1, Lmax + 1, 3}, FT}(undef)
     blk = MArray{Tuple{((Lmax + 1) * (Lmax + 2) ÷ 2)^2}, FT}(undef)
-    Tmax = 2 * Lmax + 2
 
     half_oo = FT(0.5)
     π_FT = FT(π)
@@ -36,8 +35,8 @@
         blk[k] = zero(FT)
     end
 
-    Ax = posA[1, b]; Ay = posA[2, b]; Az = posA[3, b]
-    Bx = posB[1, b]; By = posB[2, b]; Bz = posB[3, b]
+    A = SVector(posA[1, b], posA[2, b], posA[3, b])
+    B = SVector(posB[1, b], posB[2, b], posB[3, b])
 
     off_a = prim_offset[s_a]; npa = nprim[s_a]
     off_b = prim_offset[s_b]; npb = nprim[s_b]
@@ -46,78 +45,12 @@
         ca = coef[off_a + ip]; αa = α[off_a + ip]
         cb = coef[off_b + jp]; αb = α[off_b + jp]
 
-        p = αa + αb
-        Px = (αa * Ax + αb * Bx) / p
-        Py = (αa * Ay + αb * By) / p
-        Pz = (αa * Az + αb * Bz) / p
-        μ = αa * αb / p
+        p, P, μ = _gaussprod_2c(αa, αb, A, B)
         oo2p = half_oo / p
         prefac = ca * cb * (π_FT / p)^pow15
 
-        for ax in 1:3
-            P_ax = ax == 1 ? Px : (ax == 2 ? Py : Pz)
-            A_ax = ax == 1 ? Ax : (ax == 2 ? Ay : Az)
-            B_ax = ax == 1 ? Bx : (ax == 2 ? By : Bz)
-            AB = A_ax - B_ax
-            PA = P_ax - A_ax
-            PB = P_ax - B_ax
-
-            for jb in 1:(l_b + 1), ia in 1:(l_a + 1)
-                ab = ia + jb
-                if ab <= Tmax
-                    E[ab, ia, jb, ax] = zero(FT)
-                end
-                if ab + 1 <= Tmax
-                    E[ab+1, ia, jb, ax] = zero(FT)
-                end
-            end
-            E[1, 1, 1, ax] = exp(-μ * AB * AB)
-
-            for i in 2:(l_a + 1)
-                E[1, i, 1, ax] = PA * E[1, i-1, 1, ax] + E[2, i-1, 1, ax]
-                for t in 2:i
-                    tFT = FT(t)
-                    E[t, i, 1, ax] = PA * E[t, i-1, 1, ax] + tFT * E[t+1, i-1, 1, ax] + oo2p * E[t-1, i-1, 1, ax]
-                end
-            end
-            for j in 2:(l_b + 1)
-                E[1, 1, j, ax] = PB * E[1, 1, j-1, ax] + E[2, 1, j-1, ax]
-                for t in 2:j
-                    tFT = FT(t)
-                    E[t, 1, j, ax] = PB * E[t, 1, j-1, ax] + tFT * E[t+1, 1, j-1, ax] + oo2p * E[t-1, 1, j-1, ax]
-                end
-                for i in 2:(l_a + 1)
-                    E[1, i, j, ax] = PA * E[1, i-1, j, ax] + E[2, i-1, j, ax]
-                    for t in 2:i+j-1
-                        tFT = FT(t)
-                        E[t, i, j, ax] = PA * E[t, i-1, j, ax] + tFT * E[t+1, i-1, j, ax] + oo2p * E[t-1, i-1, j, ax]
-                    end
-                end
-            end
-        end
-
-        # Contraction: flat (nbf_a × nbf_b) block at linear position
-        # `index1 + N1*(index2-1)`, N1 = nbf_a (the Cartesian count), so the write
-        # stride matches the readback below for every l. Matches
-        # Reference.generate_S_pair! bit-for-bit.
-        index1 = 1
-        for ll1 in l_a:-1:0
-            for n1 in 0:(l_a - ll1)
-                m1 = l_a - ll1 - n1
-                index2 = 1
-                for ll2 in l_b:-1:0
-                    for n2 in 0:(l_b - ll2)
-                        m2 = l_b - ll2 - n2
-                        lin = index1 + N1 * (index2 - 1)
-                        blk[lin] += E[1, ll1+1, ll2+1, 1] *
-                                    E[1, m1+1, m2+1, 2] *
-                                    E[1, n1+1, n2+1, 3] * prefac
-                        index2 += 1
-                    end
-                end
-                index1 += 1
-            end
-        end
+        _mdE_2c!(E, l_a + 1, l_b + 1, A, B, P, μ, oo2p)
+        _contract_S_2c!(blk, E, l_a, l_b, N1, prefac)
     end
 
     @inbounds for j in 1:nbf_b, i in 1:nbf_a

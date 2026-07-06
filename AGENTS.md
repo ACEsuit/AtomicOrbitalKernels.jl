@@ -82,6 +82,11 @@ one is the most common mistake here.
 - McMurchie–Davidson E-coefficient recursion; one work-item per
   `(b, shell_a, shell_b[, shell_c])`; per-work-item `MArray` scratch sized by
   `Val{Lmax}`.
+- The recursion + Gaussian-product + 2C contraction helpers are shared
+  (`mdE.jl`: `_mdE_2c!`/`_mdE_3c!`/`_gaussprod_2c`/`_gaussprod_3c`/
+  `_contract_S_2c!`, `@inline`, allocation-free, KA-legal); all four kernels
+  drive them (the pullback with raised bounds `l+3`). New overlap kernels
+  should call these rather than re-inline the recursion.
 - GB path: `compiled_basis.jl` (`CompiledBasis`), `kernels_2c.jl` /
   `kernels_3c.jl`, `adapt.jl` (`adapt_basis` for GPU residency), `units.jl`
   (Unitful → Bohr).

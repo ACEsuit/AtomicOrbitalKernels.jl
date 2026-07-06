@@ -58,6 +58,7 @@ const ang2bohr = 1.8897261246257702
 include("integrals/units.jl")
 include("integrals/compiled_basis.jl")
 include("integrals/adapt.jl")
+include("integrals/mdE.jl")
 include("integrals/kernels_2c.jl")
 include("integrals/kernels_3c.jl")
 include("integrals/reference/Reference.jl")
