@@ -16,6 +16,11 @@ const BS_SI_DEFSVP = BasisSet("def2-SVP", [_SI_ATOM]; spherical=false, lib=:acsi
 const _H_ATOM = Molecules.Atom(1, 1.008, SA[0.0, 0.0, 0.0])
 const BS_H_STO3G = BasisSet("sto-3g", [_H_ATOM]; spherical=false, lib=:acsint)
 
+# Carbon, sto-3g: 3 shells (1s, 2s, 2p), max angular momentum l = 1 — the
+# smallest basis with a p shell, still alias-free (2l+1 == nbf for l ≤ 1).
+const _C_ATOM = Molecules.Atom(6, 12.011, SA[0.0, 0.0, 0.0])
+const BS_C_STO3G = BasisSet("sto-3g", [_C_ATOM]; spherical=false, lib=:acsint)
+
 # Helper: build random (3, B) position matrices on a length scale similar to a
 # diatomic molecule (~1.5 Å). Returns both a plain numeric matrix (for
 # `Reference.batch_S_pair_ref!`, which is unit-naive) and a Unitful matrix

@@ -11,7 +11,7 @@
 
 using FastGaussQuadrature: gausshermite
 using StaticArrays
-import AtomicOrbitalKernels.Reference: ang2bohr
+using AtomicOrbitalKernels: ang2bohr
 
 # GH nodes/weights (weight e^{-t²}). Exact for a 1D integrand of polynomial
 # degree ≤ 2n−1; the highest total degree is 3·Lmax (the 3-center triple), so
@@ -104,6 +104,7 @@ function quad_batch_S_pair!(out::AbstractArray{T,3}, BS,
     nshells = length(BS.basis)
     Ntot = offset[end]
     @assert size(out, 1) == Ntot && size(out, 2) == Ntot
+    @assert size(out, 3) == size(posA, 2) == size(posB, 2)
     Lmax = maximum(s.l for s in BS.basis)
     t, w = _gh_nodes(Lmax)
 
@@ -165,6 +166,7 @@ function quad_batch_V_triple!(out::AbstractArray{T,4}, BS,
     nshells = length(BS.basis)
     Ntot = offset[end]
     @assert size(out, 1) == Ntot && size(out, 2) == Ntot && size(out, 3) == Ntot
+    @assert size(out, 4) == size(posA, 2) == size(posB, 2) == size(posC, 2)
     Lmax = maximum(s.l for s in BS.basis)
     t, w = _gh_nodes(Lmax)
 

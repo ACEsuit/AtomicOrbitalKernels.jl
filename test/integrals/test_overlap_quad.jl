@@ -33,9 +33,21 @@ end
     Sx = _quad_S1d(0, 0, a, b, 0.0, 0.0, t, w)
     @test Sx^3 ≈ (π / (a + b))^1.5
 
-    # on an Lmax ≤ 1 basis the oracle must agree with Reference (both correct)
+    # displaced s/s closed form (π/p)^1.5 · exp(−μR²): exercises the
+    # Gaussian-product prefactor path
+    R = 0.9
+    Sd = _quad_S1d(0, 0, a, b, 0.0, R, t, w)
+    @test Sd * Sx^2 ≈ (π / (a + b))^1.5 * exp(-(a * b / (a + b)) * R^2)
+
+    # 3C s/s/s closed form at a common center: (π/(a+b+c))^1.5
+    c = 2.1
+    S3 = _quad_S1d_3(0, 0, 0, a, b, c, 0.0, 0.0, 0.0, t, w)
+    @test S3^3 ≈ (π / (a + b + c))^1.5
+
+    # on Lmax ≤ 1 bases the oracle must agree with Reference (both correct
+    # there): H sto-3g (s only), then C sto-3g (adds a p shell), 2C and 3C
     rng = MersenneTwister(11)
-    N = compile_basis(BS_H_STO3G).nbf_total
+    N = last(_cart_offsets(BS_H_STO3G)[2])
     B = 3
     posA_raw, _ = random_positions(B; scale=0.3, rng=rng)
     posB_raw, _ = random_positions(B; offset=(0.74, 0.0, 0.0), scale=0.3, rng=rng)
@@ -44,6 +56,20 @@ end
     out_q = zeros(Float64, N, N, B)
     quad_batch_S_pair!(out_q, BS_H_STO3G, posA_raw, posB_raw)
     @test maximum(abs, out_q .- out_ref) < 1e-10
+
+    NC = last(_cart_offsets(BS_C_STO3G)[2])
+    posC_raw, _ = random_positions(B; offset=(0.5, -0.3, 0.2), scale=0.3, rng=rng)
+    ref_p2 = zeros(Float64, NC, NC, B)
+    Reference.batch_S_pair_ref!(ref_p2, BS_C_STO3G, posA_raw, posB_raw)
+    quad_p2 = zeros(Float64, NC, NC, B)
+    quad_batch_S_pair!(quad_p2, BS_C_STO3G, posA_raw, posB_raw)
+    @test maximum(abs, quad_p2 .- ref_p2) < 1e-10
+
+    ref_p3 = zeros(Float64, NC, NC, NC, B)
+    Reference.batch_V_triple_ref!(ref_p3, BS_C_STO3G, posA_raw, posB_raw, posC_raw)
+    quad_p3 = zeros(Float64, NC, NC, NC, B)
+    quad_batch_V_triple!(quad_p3, BS_C_STO3G, posA_raw, posB_raw, posC_raw)
+    @test maximum(abs, quad_p3 .- ref_p3) < 1e-10
 end
 
 @testset "2-center: kernel vs quadrature oracle" begin
